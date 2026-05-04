@@ -201,8 +201,8 @@ class VKDownloader:
             posts = self.vk.wall.get(
                 owner_id=self.group_id, 
                 count=count, 
-                v=VK_API_VERSION,  # ← Без self!
-                extended=0
+                v=VK_API_VERSION,
+                extended=1  # ← Важно: возвращает полную информацию с метриками
             )['items']
             
             if not posts:
