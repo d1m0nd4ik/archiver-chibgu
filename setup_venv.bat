@@ -1,0 +1,1 @@
+pip install PySide6 vk_api pymorphy3 requests yt-dlp Pillow ffmpeg-python python-dotenv -i https://pypi.tuna.tsinghua.edu.cn/simple --default-timeout=100
