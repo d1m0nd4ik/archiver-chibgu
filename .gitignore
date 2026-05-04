@@ -5,6 +5,9 @@ __pycache__/
 *.pyo
 *.pyd
 
+ffmpeg/
+vk_archive_data/
+
 # Database files
 *.db
 *.sqlite
