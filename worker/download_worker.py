@@ -7,7 +7,6 @@ from core.database import Database
 import vk_api
 import datetime
 import os
-import time
 import re
 from config.settings import VK_API_VERSION
 
@@ -31,21 +30,18 @@ class DownloadWorker(QThread):
         try:
             self.signals.progress.emit("🔄 Инициализация...")
             
-            # Создаем VKDownloader
             vk = VKDownloader(self.token, self.group_identifier)
-            
-            # Создаем теггер
             tagger = EmployeeTagger()
             nlp = NLPProcessor()
             
             self.signals.progress.emit(f"📥 Загрузка постов из группы {self.group_identifier}...")
             
-            # Получаем посты
             try:
                 posts = vk.vk.wall.get(
                     owner_id=vk.group_id,
                     count=self.count,
-                    v=VK_API_VERSION  # ← Без vk.!
+                    v=VK_API_VERSION,
+                    extended=1
                 )['items']
             except vk_api.exceptions.ApiError as e:
                 error_text = str(e).lower()
@@ -60,7 +56,7 @@ class DownloadWorker(QThread):
                 raise
             
             if not posts:
-                self.signals.progress.emit("❌ Посты не найдены")
+                self.signals.progress.emit("Посты не найдены")
                 return
             
             total = len(posts)
@@ -69,20 +65,26 @@ class DownloadWorker(QThread):
             for post in posts:
                 if not self.is_running:
                     break
-                
+                 
                 post_date = post['date']
                 post_id = post['id']
 
-                # Быстрый фильтр: если пост уже загружался, пропускаем.
+                likes = post.get('likes', {}).get('count', 0)
+                comments = post.get('comments', {}).get('count', 0)
+                shares = post.get('reposts', {}).get('count', 0)
+                views = post.get('views', {}).get('count', 0)
+
+                # Обновляем статистику для уже загруженного поста
                 if vk.db.post_exists(post_id):
-                    self.signals.progress.emit(f"⏭ Пропуск поста {post_id}: уже загружен")
+                    if vk.db.update_post_stats(post_id, likes, comments, shares, views):
+                        self.signals.progress.emit(f"🔁 Обновлены лайки/просмотры поста {post_id}")
+                    else:
+                        self.signals.progress.emit(f"⚠️ Не удалось обновить статистику поста {post_id}")
                     continue
                 
-                # Обработка
                 date = datetime.datetime.fromtimestamp(post_date).strftime('%Y-%m-%d %H:%M')
                 text = post.get('text', '')
                 
-                # Поиск преподавателей + ключевых слов (старый NLP) + уже существующих #хэштегов
                 all_tags = set(tagger.get_all_tags(text, include_keywords=True))
                 nlp_tags = nlp.generate_tags(text)
                 if nlp_tags:
@@ -91,11 +93,23 @@ class DownloadWorker(QThread):
                 found_tags = sorted(all_tags)
                 
                 attachments = post.get('attachments', [])
-                
-                # Определяем папку по дате
+                 
                 folder_path = MediaProcessor.get_date_folder_path(post_date)
                 os.makedirs(folder_path, exist_ok=True)
                 
+                # 1. Сохраняем ПОСТ (без медиа!) - ТОЛЬКО ОДИН РАЗ
+                vk.db.save_post(
+                    original_post_id=post_id,
+                    date=date,
+                    text=text,
+                    tags=" ".join(found_tags) if found_tags else "",
+                    likes=likes,
+                    comments=comments,
+                    shares=shares,
+                    views=views
+                )
+                
+                # 2. Цикл по ВСЕМ вложениям поста
                 for index, attach in enumerate(attachments, 1):
                     att_type = attach['type']
                     media_path = None
@@ -111,60 +125,76 @@ class DownloadWorker(QThread):
                         )
                         if url:
                             media_key = f"photo_{photo_id}"
-                            temp_path = os.path.join(folder_path, f"post_{post_id}_photo_{photo_id}.jpg")
-                            webp_path = os.path.join(folder_path, f"post_{post_id}_photo_{photo_id}.webp")
+                            photo_path = os.path.join(folder_path, f"post_{post_id}_photo_{photo_id}.jpg")
                             
-                            if MediaProcessor.download_file(url, temp_path):
-                                media_path = MediaProcessor.convert_to_webp(temp_path, webp_path) or temp_path
-                                if os.path.exists(temp_path) and media_path != temp_path:
-                                    os.remove(temp_path)
+                            if MediaProcessor.download_file(url, photo_path):
+                                media_path = photo_path
                                 processed += 1
+                                print(f"[OK] Фото сохранено: {media_path}")
                     
-                    elif att_type == 'video':
-                        video = attach['video']
-                        video_id = video.get('id', index)
-                        owner_id = video.get('owner_id')
-                        access_key = video.get('access_key')
-                        media_key = f"video_{owner_id}_{video_id}"
-                        media_path = os.path.join(folder_path, f"post_{post_id}_video_{video_id}.mp4")
+                    elif att_type in ('video', 'clip'):
+                        media_data = attach.get('video') or attach.get('clip')
+                        if not media_data:
+                            continue
+
+                        video_id = media_data.get('id', index)
+                        owner_id = media_data.get('owner_id')
+                        access_key = media_data.get('access_key')
+                        media_key = f"{att_type}_{owner_id}_{video_id}"
+                        
+                        thumb_url = None
+                        if 'image' in media_data and media_data['image']:
+                            images = media_data['image']
+                            if isinstance(images, list) and len(images) > 0:
+                                last_img = images[-1]
+                                if isinstance(last_img, dict):
+                                    thumb_url = last_img.get('url')
+                                else:
+                                    thumb_url = last_img
+                            elif isinstance(images, str):
+                                thumb_url = images
+
+                        if thumb_url and isinstance(thumb_url, str) and thumb_url.startswith('http'):
+                            try:
+                                thumb_filename = f"post_{post_id}_{att_type}_{video_id}_thumb.jpg"
+                                thumb_path = os.path.join(folder_path, thumb_filename)
+                                MediaProcessor.download_thumbnail(thumb_url, thumb_path)
+                            except Exception as e:
+                                print(f"[Thumb] Error: {e}")
+                        
+                        media_path = os.path.join(folder_path, f"post_{post_id}_{att_type}_{video_id}.mp4")
                         downloaded_video_path = vk.download_video(
                             owner_id,
                             video_id,
                             post_id,
                             output_path=media_path,
-                            fallback_video_data=video,
+                            fallback_video_data=media_data,
                             access_key=access_key
                         )
 
                         if downloaded_video_path:
                             media_path = downloaded_video_path
                             processed += 1
-                    
+                        else:
+                            print(f"[WORKER] Пропуск {att_type} {video_id}")
+
+                    # 3. ИСПРАВЛЕНИЕ: Сохраняем КАЖДОЕ медиа в БД ВНУТРИ цикла
                     if media_path and os.path.exists(media_path):
                         size = MediaProcessor.get_file_size(media_path)
-                        
-                        # Уникальный ID для записи в таблице
-                        import hashlib
-                        unique_id = int(hashlib.md5(f"{post_id}_{media_key}".encode()).hexdigest()[:8], 16)
-                        
-                        # Сохраняем в БД с устойчивым ключом вложения (без дублей при повторной загрузке)
-                        vk.db.save_post(
-                            post_id=unique_id,
+                        vk.db.save_media(
                             original_post_id=post_id,
-                            date=date,
-                            text=text,
-                            tags=" ".join(found_tags) if found_tags else "",
                             media_type=att_type,
                             media_key=media_key,
                             media_path=media_path,
                             file_size=size
                         )
-                    
-                    self.signals.progress.emit(f"📥 Обработано: {processed}/{total}")
+                        print(f"[DB] Медиа добавлено к посту {post_id}: {media_path}")
             
+            self.signals.progress.emit(f"Обработано: {processed}/{total}")
+        
             vk.db.close()
-            self.signals.progress.emit(f"✅ Завершено! Сохранено: {processed} файлов")
+            self.signals.progress.emit(f"Завершено! Сохранено: {processed} файлов")
             self.signals.finished.emit()
             
         except Exception as e:
-            self.signals.error.emit(f"❌ Ошибка: {str(e)}")
+            self.signals.error.emit(f"Ошибка: {str(e)}")

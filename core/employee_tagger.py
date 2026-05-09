@@ -138,11 +138,11 @@ class EmployeeTagger:
         self.employees = []
         
         if not os.path.exists(excel_path):
-            print("⚠️ Файл employees_unique.xlsx не найден. Создаем...")
+            print("Файл employees_unique.xlsx не найден. Создаем...")
             try:
                 update_employees_from_url(filename=excel_path)
             except Exception as e:
-                print(f"❌ Не удалось создать файл: {e}")
+                print(f"Не удалось создать файл: {e}")
                 print("Запустите pars.py вручную для создания файла")
         
         self.load_data(excel_path)
@@ -151,7 +151,7 @@ class EmployeeTagger:
         """Загрузка и парсинг списка преподавателей"""
         try:
             if not os.path.exists(excel_path):
-                print(f"⚠️ Файл {excel_path} не найден")
+                print(f"Файл {excel_path} не найден")
                 return
 
             df = pd.read_excel(excel_path)

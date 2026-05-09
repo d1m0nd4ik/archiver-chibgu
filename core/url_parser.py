@@ -46,7 +46,7 @@ class VKUrlParser:
                     return -group_id
             except vk_api.exceptions.ApiError as e:
                 if "invalid access_token" in str(e):
-                    raise Exception("❌ Неверный токен! Получите новый на https://vkhost.github.io/")
+                    raise Exception("Неверный токен! Получите новый на https://vkhost.github.io/")
                 print(f"Error resolving group alias: {e}")
                 return None
             except Exception as e:

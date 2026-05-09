@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QDialog, QSlider, QStackedLayout, QDateEdit, QCheckBox
 )
 from PySide6.QtCore import Qt, QTimer, Signal, QUrl
-from PySide6.QtGui import QFont, QPixmap, QGuiApplication
+from PySide6.QtGui import QFont, QPixmap, QGuiApplication, QImage
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from .styles import STYLES, update_global_styles
@@ -119,7 +119,7 @@ class HeaderWidget(QFrame):
         layout.setContentsMargins(20, 10, 20, 10)
 
         title_layout = QHBoxLayout()
-        logo_label = QLabel("🎬")
+        logo_label = QLabel("VK")
         logo_label.setStyleSheet("font-size: 32px;")
 
         title_label = QLabel("VK Media Archiver Pro")
@@ -196,27 +196,27 @@ class SidebarWidget(QFrame):
         layout.setContentsMargins(10, 20, 10, 20)
         layout.setSpacing(5)
 
-        main_label = QLabel("📋 ОСНОВНОЕ")
+        main_label = QLabel("ОСНОВНОЕ")
         main_label.setStyleSheet(self._get_section_label_style())
         layout.addWidget(main_label)
 
         self.buttons = {}
-        self.buttons['download'] = NavigationButton("📥", "Загрузка контента", "download", self.theme)
-        self.buttons['search'] = NavigationButton("🔍", "Поиск в архиве", "search", self.theme)
-        self.buttons['stats'] = NavigationButton("📊", "Статистика", "stats", self.theme)
-        self.buttons['storage'] = NavigationButton("📚", "Хранилище", "storage", self.theme)
+        self.buttons['download'] = NavigationButton("", "Загрузка контента", "download", self.theme)
+        self.buttons['search'] = NavigationButton("", "Поиск в архиве", "search", self.theme)
+        self.buttons['stats'] = NavigationButton("", "Статистика", "stats", self.theme)
+        self.buttons['storage'] = NavigationButton("", "Хранилище", "storage", self.theme)
 
         for btn in self.buttons.values():
             layout.addWidget(btn)
 
         layout.addSpacing(20)
 
-        settings_label = QLabel("⚙️ НАСТРОЙКИ")
+        settings_label = QLabel("НАСТРОЙКИ")
         settings_label.setStyleSheet(self._get_section_label_style())
         layout.addWidget(settings_label)
 
-        self.buttons['settings'] = NavigationButton("🔧", "Настройки приложения", "settings", self.theme)
-        self.buttons['about'] = NavigationButton("ℹ️", "О программе", "about", self.theme)
+        self.buttons['settings'] = NavigationButton("", "Настройки приложения", "settings", self.theme)
+        self.buttons['about'] = NavigationButton("", "О программе", "about", self.theme)
 
         for btn in self.buttons.values():
             if btn not in list(self.buttons.values())[:4]:
@@ -263,7 +263,7 @@ class DownloadPage(QWidget):
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(20)
 
-        header = QLabel("📥 Загрузка контента из ВКонтакте")
+        header = QLabel("Загрузка контента из ВКонтакте")
         text_color = '#000000' if STYLES._theme == 'light' else '#ffffff'
         header.setStyleSheet(f"font-size: 22px; font-weight: bold; padding: 10px 0; color: {text_color};")
         self.header_label = header
@@ -274,20 +274,20 @@ class DownloadPage(QWidget):
         form_layout = QGridLayout(form_frame)
         form_layout.setSpacing(15)
 
-        form_layout.addWidget(QLabel("🔑 Access Token:"), 0, 0)
+        form_layout.addWidget(QLabel("Токен доступа:"), 0, 0)
         self.token_input = QLineEdit()
         self.token_input.setPlaceholderText("Вставьте токен из vkhost.github.io")
         self.token_input.setStyleSheet(self.styles['input'])
         form_layout.addWidget(self.token_input, 0, 1)
 
-        form_layout.addWidget(QLabel("🔗 Ссылка на сообщество:"), 1, 0)
+        form_layout.addWidget(QLabel("Ссылка на сообщество:"), 1, 0)
         self.group_input = QLineEdit()
         self.group_input.setPlaceholderText("https://vk.com/public123456 или https://vk.com/durov")
         self.group_input.setStyleSheet(self.styles['input'])
         form_layout.addWidget(self.group_input, 1, 1)
 
         # ДАТЫ (в том же стиле!)
-        form_layout.addWidget(QLabel("📅 Дата начала:"), 2, 0)
+        form_layout.addWidget(QLabel("Дата начала:"), 2, 0)
         self.date_start = QDateEdit()
         self.date_start.setCalendarPopup(True)
         self.date_start.setDate(datetime.datetime.now() - datetime.timedelta(days=7))
@@ -295,7 +295,7 @@ class DownloadPage(QWidget):
         self.date_start.setMinimumHeight(40)
         form_layout.addWidget(self.date_start, 2, 1)
 
-        form_layout.addWidget(QLabel("📅 Дата окончания:"), 3, 0)
+        form_layout.addWidget(QLabel("Дата окончания:"), 3, 0)
         self.date_end = QDateEdit()
         self.date_end.setCalendarPopup(True)
         self.date_end.setDate(datetime.datetime.now())
@@ -305,7 +305,7 @@ class DownloadPage(QWidget):
 
         layout.addWidget(form_frame)
 
-        self.download_btn = QPushButton("🚀 Начать загрузку")
+        self.download_btn = QPushButton("Начать загрузку")
         self.download_btn.setStyleSheet(self.styles['button'])
         self.download_btn.setMinimumHeight(50)
         self.download_btn.setFont(QFont("Arial", 12, QFont.Bold))
@@ -350,7 +350,7 @@ class SearchPage(QWidget):
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(20)
 
-        header = QLabel("🔍 Поиск в архиве")
+        header = QLabel("Поиск в архиве")
         text_color = '#000000' if STYLES._theme == 'light' else '#ffffff'
         header.setStyleSheet(f"color: {text_color}; font-size: 22px; font-weight: bold; padding: 10px 0;")
         self.header_label = header
@@ -375,7 +375,7 @@ class SearchPage(QWidget):
 
         layout.addLayout(search_layout)
 
-        results_label = QLabel("📋 Результаты поиска:")
+        results_label = QLabel("Результаты поиска:")
         results_label.setStyleSheet(self.styles['label_title'])
         self.results_label = results_label
         layout.addWidget(results_label)
@@ -410,7 +410,7 @@ class StatsPage(QWidget):
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(20)
 
-        header = QLabel("📊 Статистика архива")
+        header = QLabel("Статистика архива")
         text_color = '#000000' if STYLES._theme == 'light' else '#ffffff'
         header.setStyleSheet(f"color: {text_color}; font-size: 22px; font-weight: bold; padding: 10px 0;")
         self.header_label = header
@@ -432,31 +432,25 @@ class StatsPage(QWidget):
 
         controls_layout.addWidget(QLabel("Метрика:"), 0, 2)
         self.metric_combo = QComboBox()
-        self.metric_combo.addItems(["likes", "comments", "shares", "views", "engagement"])
-        self.metric_combo.setCurrentText("views")
+        self.metric_combo.addItems(["Лайки", "Комментарии", "Репосты", "Просмотры", "Вовлечённость"])
+        self.metric_combo.setCurrentText("Просмотры")
         controls_layout.addWidget(self.metric_combo, 0, 3)
 
-        controls_layout.addWidget(QLabel("Тип медиа:"), 1, 0)
-        self.media_combo = QComboBox()
-        self.media_combo.addItems(["all", "photo", "video"])
-        self.media_combo.setCurrentText("all")
-        controls_layout.addWidget(self.media_combo, 1, 1)
-
-        controls_layout.addWidget(QLabel("Дата от:"), 1, 2)
+        controls_layout.addWidget(QLabel("Дата от:"), 1, 0)
         self.custom_start = QDateEdit()
         self.custom_start.setCalendarPopup(True)
         self.custom_start.setDate(datetime.datetime.now() - datetime.timedelta(days=30))
         self.custom_start.setEnabled(False)
         self.custom_start.setStyleSheet(self.styles['input'])
-        controls_layout.addWidget(self.custom_start, 1, 3)
+        controls_layout.addWidget(self.custom_start, 1, 1)
 
-        controls_layout.addWidget(QLabel("Дата до:"), 1, 4)
+        controls_layout.addWidget(QLabel("Дата до:"), 1, 2)
         self.custom_end = QDateEdit()
         self.custom_end.setCalendarPopup(True)
         self.custom_end.setDate(datetime.datetime.now())
         self.custom_end.setEnabled(False)
         self.custom_end.setStyleSheet(self.styles['input'])
-        controls_layout.addWidget(self.custom_end, 1, 5)
+        controls_layout.addWidget(self.custom_end, 1, 3)
 
         self.refresh_btn = QPushButton("Обновить статистику")
         self.refresh_btn.setStyleSheet(self.styles['button'])
@@ -480,11 +474,6 @@ class StatsPage(QWidget):
         self.top_posts_text.setStyleSheet(self.styles['textedit'])
         self.top_posts_text.setMinimumHeight(240)
 
-        self.top_media_text = QTextEdit()
-        self.top_media_text.setReadOnly(True)
-        self.top_media_text.setStyleSheet(self.styles['textedit'])
-        self.top_media_text.setMinimumHeight(240)
-
         self.top_employees_text = QTextEdit()
         self.top_employees_text.setReadOnly(True)
         self.top_employees_text.setStyleSheet(self.styles['textedit'])
@@ -497,12 +486,6 @@ class StatsPage(QWidget):
         posts_layout.addWidget(QLabel("Топ постов"))
         posts_layout.addWidget(self.top_posts_text)
 
-        media_frame = QFrame()
-        media_frame.setStyleSheet(self.styles['frame'])
-        media_layout = QVBoxLayout(media_frame)
-        media_layout.addWidget(QLabel("Топ медиа"))
-        media_layout.addWidget(self.top_media_text)
-
         employees_frame = QFrame()
         employees_frame.setStyleSheet(self.styles['frame'])
         employees_layout = QVBoxLayout(employees_frame)
@@ -510,7 +493,6 @@ class StatsPage(QWidget):
         employees_layout.addWidget(self.top_employees_text)
 
         results_layout.addWidget(posts_frame)
-        results_layout.addWidget(media_frame)
         results_layout.addWidget(employees_frame)
 
         layout.addLayout(results_layout)
@@ -554,12 +536,31 @@ class StatsPage(QWidget):
             return start, end
         return self.analyzer.period_calc.get_period_range(period)
 
+    def _metric_display_to_key(self, display_name):
+        mapping = {
+            'Лайки': 'likes',
+            'Комментарии': 'comments',
+            'Репосты': 'shares',
+            'Просмотры': 'views',
+            'Вовлечённость': 'engagement'
+        }
+        return mapping.get(display_name, 'views')
+
+    def _translate_metric(self, metric_key):
+        mapping = {
+            'likes': 'Лайки',
+            'comments': 'Комментарии',
+            'shares': 'Репосты',
+            'views': 'Просмотры',
+            'engagement': 'Вовлечённость'
+        }
+        return mapping.get(metric_key, metric_key)
+
     def refresh_statistics(self):
         try:
             period_key = self.get_period_selection()
             start_date, end_date = self.get_date_range()
-            metric = self.metric_combo.currentText()
-            media_type = self.media_combo.currentText()
+            metric_key = self._metric_display_to_key(self.metric_combo.currentText())
 
             summary = self.analyzer.get_statistics_summary(period_key, start_date, end_date)
 
@@ -570,24 +571,16 @@ class StatsPage(QWidget):
                 f"Лайков: {summary.get('total_likes')}"
             )
 
-            top_posts = self.analyzer.get_top_posts(period_key, start_date, end_date, metric, limit=10)
-            media_items = []
-            if media_type == 'all':
-                media_items.extend(self.analyzer.get_top_media('photo', period_key, start_date, end_date, metric, limit=5))
-                media_items.extend(self.analyzer.get_top_media('video', period_key, start_date, end_date, metric, limit=5))
-            else:
-                media_items = self.analyzer.get_top_media(media_type, period_key, start_date, end_date, metric, limit=10)
+            top_posts = self.analyzer.get_top_posts(period_key, start_date, end_date, metric_key, limit=10)
 
             employees = self.analyzer.get_top_employees(period_key, start_date, end_date, metric='mention_count', 
                                                        employees_list=self.analyzer.load_employee_list(), limit=10)
 
             self.top_posts_text.setPlainText(self.format_posts(top_posts))
-            self.top_media_text.setPlainText(self.format_media(media_items))
             self.top_employees_text.setPlainText(self.format_employees(employees))
 
         except Exception as e:
             self.top_posts_text.setPlainText(f"Ошибка загрузки статистики: {e}")
-            self.top_media_text.clear()
             self.top_employees_text.clear()
 
     def format_posts(self, posts):
@@ -595,20 +588,10 @@ class StatsPage(QWidget):
             return "Нет данных за выбранный период."
         lines = []
         for idx, post in enumerate(posts, start=1):
-            lines.append(f"{idx}. Пост ID {post.get('post_id')} | {post.get('date')}")
+            lines.append(f"{idx}. ID поста {post.get('post_id')} | {post.get('date')}")
             lines.append(f"   Лайки: {post.get('likes')}  Комментарии: {post.get('comments')}  "
-                         f"Поделиться: {post.get('shares')}  Просмотры: {post.get('views')}")
+                         f"Репосты: {post.get('shares')}  Просмотры: {post.get('views')}")
             lines.append(f"   Текст: {post.get('text')}")
-            lines.append("")
-        return "\n".join(lines)
-
-    def format_media(self, media_list):
-        if not media_list:
-            return "Нет медиа-данных за выбранный период."
-        lines = []
-        for idx, item in enumerate(media_list, start=1):
-            lines.append(f"{idx}. {item.get('type', '').title()} {item.get('media_key')} | {item.get('date')}")
-            lines.append(f"   {self.metric_combo.currentText().title()}: {item.get('metric_value')}")
             lines.append("")
         return "\n".join(lines)
 
@@ -617,7 +600,9 @@ class StatsPage(QWidget):
             return "Нет данных по преподавателям."
         lines = []
         for idx, item in enumerate(employees, start=1):
-            lines.append(f"{idx}. {item.get('employee')} | Упоминаний: {item.get('mention_count')}  "
+            # Нормализуем имя преподавателя
+            employee_name = self.analyzer.normalize_employee_name_for_display(item.get('employee'))
+            lines.append(f"{idx}. {employee_name} | Упоминаний: {item.get('mention_count')}  "
                          f"Постов: {item.get('post_count')}")
             lines.append(f"   Лайков: {item.get('total_likes')}  Просмотров: {item.get('total_views')}")
             lines.append("")
@@ -640,7 +625,7 @@ class StatsPage(QWidget):
         QMessageBox.information(self, "Экспорт завершен", f"Excel файл сохранен: {filepath}")
 
 class StoragePage(QWidget):
-    """Страница хранилища постов (исправленная версия)"""
+    """Исправленная страница хранилища: поддержка множественных медиа, правильные пропорции, центрирование"""
     def __init__(self, styles=None):
         super().__init__()
         self.styles = styles or STYLES.get_styles()
@@ -652,58 +637,18 @@ class StoragePage(QWidget):
 
     def _theme_colors(self):
         if STYLES._theme == 'light':
-            return {
-                'title': '#111827',
-                'muted': '#6b7280',
-                'text': '#111827',
-                'tag': '#2f6fce',
-                'card_bg': '#ffffff',
-                'card_border': '#d8dce5',
-                'separator': '#e5e7eb',
-                'media_bg': '#f3f4f6',
-                'empty': '#9ca3af'
-            }
-        return {
-            'title': '#f3f4f6',
-            'muted': '#9aa4b2',
-            'text': '#e5e7eb',
-            'tag': '#6ea8ff',
-            'card_bg': '#262a32',
-            'card_border': '#3f4654',
-            'separator': '#3f4654',
-            'media_bg': '#16191f',
-            'empty': '#7b8594'
-        }
+            return {'title': '#111827', 'muted': '#6b7280', 'text': '#111827', 'tag': '#2f6fce',
+                    'card_bg': '#ffffff', 'card_border': '#d8dce5', 'separator': '#e5e7eb',
+                    'media_bg': '#f3f4f6', 'empty': '#9ca3af'}
+        return {'title': '#f3f4f6', 'muted': '#9aa4b2', 'text': '#e5e7eb', 'tag': '#6ea8ff',
+                'card_bg': '#262a32', 'card_border': '#3f4654', 'separator': '#3f4654',
+                'media_bg': '#16191f', 'empty': '#7b8594'}
 
     def _post_card_style(self):
         c = self._theme_colors()
-        return f"""
-            QFrame {{
-                background-color: {c['card_bg']};
-                border: 1px solid {c['card_border']};
-                border-radius: 14px;
-                padding: 16px;
-            }}
-        """
-
-    def _build_cover_pixmap(self, source_path, target_w, target_h):
-        """Рисует превью в режиме cover (как в соцсетях), чтобы не было пустых полей."""
-        pixmap = QPixmap(source_path)
-        if pixmap.isNull():
-            return QPixmap()
-
-        scaled = pixmap.scaled(
-            target_w,
-            target_h,
-            Qt.KeepAspectRatioByExpanding,
-            Qt.SmoothTransformation
-        )
-        x = max(0, (scaled.width() - target_w) // 2)
-        y = max(0, (scaled.height() - target_h) // 2)
-        return scaled.copy(x, y, target_w, target_h)
+        return f"QFrame {{ background-color: {c['card_bg']}; border: 1px solid {c['card_border']}; border-radius: 14px; padding: 16px; }}"
 
     def _content_width(self):
-        """Текущая ширина рабочей области хранилища (без сайдбара/полос)."""
         viewport = self.scroll_area.viewport()
         width = viewport.width() if viewport else self.width()
         return max(320, min(width - 28, 1320))
@@ -711,192 +656,166 @@ class StoragePage(QWidget):
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15) 
-        
+        layout.setSpacing(15)
+
         header = QLabel("📚 Хранилище постов")
-        colors = self._theme_colors()
-        header.setStyleSheet(f"font-size: 24px; font-weight: 700; padding: 8px 2px 12px 2px; color: {colors['title']};")
+        c = self._theme_colors()
+        header.setStyleSheet(f"font-size: 24px; font-weight: 700; padding: 8px 2px 12px 2px; color: {c['title']};")
         self.header_label = header
         layout.addWidget(header)
-        
-        # === ИНФОРМАЦИОННАЯ СТРОКА СТАТИСТИКИ ===
+
         stats_label = QLabel()
-        colors = self._theme_colors()
-        stats_label.setStyleSheet(f"color: {colors['text']}; font-size: 14px; padding: 10px; font-weight: 500;")
+        stats_label.setStyleSheet(f"color: {c['text']}; font-size: 14px; padding: 10px; font-weight: 500;")
         self.storage_stats_label = stats_label
         layout.addWidget(self.storage_stats_label)
-        
+
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setStyleSheet("background-color: transparent; border: none;")
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        
+
         self.posts_container = QWidget()
         self.posts_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.posts_layout = QVBoxLayout(self.posts_container)
         self.posts_layout.setSpacing(15)
         self.posts_layout.setAlignment(Qt.AlignTop)
-        
+
         self.scroll_area.setWidget(self.posts_container)
         layout.addWidget(self.scroll_area)
-        
-        self.load_more_btn = QPushButton("📥 Загрузить ещё посты")
+
+        self.load_more_btn = QPushButton("Загрузить ещё посты")
         self.load_more_btn.setStyleSheet(self.styles['button'])
         self.load_more_btn.setMinimumHeight(45)
         self.load_more_btn.clicked.connect(self.load_more_posts)
         self.load_more_btn.setVisible(False)
         layout.addWidget(self.load_more_btn)
-        
-        # Обновляем статистику при инициализации
+
         self.update_storage_stats()
 
     def update_storage_stats(self):
-        """Обновляет статистику в хранилище"""
         try:
             db = Database()
             stats = db.get_stats()
             db.close()
-            
-            total = stats.get('total', 0)
-            photos = stats.get('photos', 0)
-            videos = stats.get('videos', 0)
-            
-            stats_text = f"📌 Всего: {total}  |  📷 Фото: {photos}  |  🎬 Видео: {videos}"
-            self.storage_stats_label.setText(stats_text)
+            self.storage_stats_label.setText(
+                f"Всего постов: {stats['total']} | Фото: {stats['photos']} | Видео: {stats['videos']} | Клипы: {stats['clips']}"
+            )
         except Exception as e:
             print(f"Error updating storage stats: {e}")
 
     def load_posts(self, posts, clear=True):
         if clear:
             self._last_posts = list(posts)
-
-        if clear:
             while self.posts_layout.count():
                 child = self.posts_layout.takeAt(0)
-                if child.widget():
-                    child.widget().deleteLater()
+                if child.widget(): child.widget().deleteLater()
             self.loaded_count = 0
-        
+
         if not posts:
             if clear:
-                no_posts_label = QLabel("📭 Постов пока нет")
-                colors = self._theme_colors()
-                no_posts_label.setStyleSheet(f"color: {colors['muted']}; font-size: 16px; padding: 50px;")
-                no_posts_label.setAlignment(Qt.AlignCenter)
-                self.posts_layout.addWidget(no_posts_label)
+                lbl = QLabel("📭 Постов пока нет")
+                lbl.setStyleSheet(f"color: {self._theme_colors()['muted']}; font-size: 16px; padding: 50px;")
+                lbl.setAlignment(Qt.AlignCenter)
+                self.posts_layout.addWidget(lbl)
             self.load_more_btn.setVisible(False)
             return
-        
+
         sorted_posts = sorted(posts, key=lambda x: x[2] if len(x) > 2 else '', reverse=True)
-        posts_to_show = sorted_posts[self.loaded_count:self.loaded_count + self.limit]
-        
-        for post in posts_to_show:
-            post_widget = self.create_post_widget(post)
-            self.posts_layout.addWidget(post_widget)
-        
-        self.loaded_count += len(posts_to_show)
+        for post in sorted_posts[self.loaded_count:self.loaded_count + self.limit]:
+            self.posts_layout.addWidget(self.create_post_widget(post))
+
+        self.loaded_count += len(sorted_posts[self.loaded_count:self.loaded_count + self.limit])
         self.load_more_btn.setVisible(self.loaded_count < len(sorted_posts))
         self.posts_layout.addStretch()
 
     def showEvent(self, event):
         super().showEvent(event)
-        # При первом показе вкладки пересчитываем layout под фактическую ширину.
-        if self._last_posts:
-            self.load_posts(self._last_posts, clear=True)
+        if self._last_posts: self.load_posts(self._last_posts, clear=True)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # При изменении размеров окна держим медиа в границах контейнера.
-        if self.isVisible() and self._last_posts:
-            self.load_posts(self._last_posts, clear=True)
+        if self.isVisible() and self._last_posts: self.load_posts(self._last_posts, clear=True)
 
     def load_more_posts(self):
         try:
             db = Database()
             all_posts = db.get_all_posts(limit=500)
             db.close()
-            remaining_posts = all_posts[self.loaded_count:]
-            self.load_posts(remaining_posts, clear=False)
+            self.load_posts(all_posts[self.loaded_count:], clear=False)
         except Exception as e:
-            print(f"Error loading more posts: {e}")
             QMessageBox.warning(self, "Ошибка", f"Не удалось загрузить посты:\n{e}")
 
     def create_post_widget(self, post):
         post_id = str(post[1]) if len(post) > 1 and post[1] is not None else "Unknown"
-        date = str(post[2]) if len(post) > 2 and post[2] is not None else " "
-        text = str(post[3]) if len(post) > 3 and post[3] is not None else " "
-        tags = str(post[4]) if len(post) > 4 and post[4] is not None else " "
-        media_type = str(post[5]) if len(post) > 5 and post[5] is not None else " "
-        media_path = str(post[6]) if len(post) > 6 and post[6] is not None else " "
+        date = str(post[2]) if len(post) > 2 and post[2] is not None else ""
+        text = str(post[3]) if len(post) > 3 and post[3] is not None else ""
+        tags = str(post[4]) if len(post) > 4 and post[4] is not None else ""
+        media_type = str(post[5]) if len(post) > 5 and post[5] is not None else ""
+        media_path = str(post[6]) if len(post) > 6 and post[6] is not None else ""
 
-        post_frame = QFrame()
-        post_frame.setStyleSheet(self._post_card_style())
-        post_layout = QVBoxLayout(post_frame)
-        post_layout.setSpacing(12)
-        colors = self._theme_colors()
+        frame = QFrame()
+        frame.setStyleSheet(self._post_card_style())
+        layout = QVBoxLayout(frame)
+        layout.setSpacing(12)
+        c = self._theme_colors()
 
         if date:
-            date_label = QLabel(date)
-            date_label.setStyleSheet(f"color: {colors['muted']}; font-size: 12px; font-weight: 500;")
-            post_layout.addWidget(date_label)
-
+            d_lbl = QLabel(date)
+            d_lbl.setStyleSheet(f"color: {c['muted']}; font-size: 12px; font-weight: 500;")
+            layout.addWidget(d_lbl)
         if text:
-            text_label = QLabel(text)
-            text_label.setStyleSheet(f"color: {colors['text']}; font-size: 14px; line-height: 1.6;")
-            text_label.setWordWrap(True)
-            text_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            post_layout.addWidget(text_label)
-
+            t_lbl = QLabel(text)
+            t_lbl.setStyleSheet(f"color: {c['text']}; font-size: 14px; line-height: 1.6;")
+            t_lbl.setWordWrap(True)
+            layout.addWidget(t_lbl)
         if tags:
-            tags_label = QLabel(tags)
-            tags_label.setStyleSheet(f"color: {colors['tag']}; font-size: 13px; font-weight: 600;")
-            tags_label.setWordWrap(True)
-            post_layout.addWidget(tags_label)
+            tg_lbl = QLabel(tags)
+            tg_lbl.setStyleSheet(f"color: {c['tag']}; font-size: 13px; font-weight: 600;")
+            tg_lbl.setWordWrap(True)
+            layout.addWidget(tg_lbl)
 
-        if media_path and media_type:
-            paths_list = [p.strip() for p in media_path.split(',') if p and p.strip() and p.strip() != "None"]
-            types_list = [t.strip() for t in media_type.split(',')] if media_type else []
+        if media_path and media_path != "None" and media_type and media_type != "None":
+            # 🔧 РАЗДЕЛЯЕМ ПО ЗАПЯТОЙ ВСЕ МЕДИА
+            paths_list = [p.strip() for p in media_path.split(',') if p.strip() and p.strip().lower() != 'none']
+            types_list = [t.strip() for t in media_type.split(',') if t.strip() and t.strip().lower() != 'none']
+            
+            # Создаем список кортежей (path, type)
             normalized_media = []
-            for idx, m_path in enumerate(paths_list):
-                m_type = types_list[idx] if idx < len(types_list) and types_list[idx] else "photo"
+            for idx in range(len(paths_list)):
+                m_path = paths_list[idx]
+                m_type = types_list[idx] if idx < len(types_list) else "photo"
                 normalized_media.append((m_path, m_type))
-
-            # Видео всегда показываем первыми, затем фото (как просили).
-            normalized_media.sort(key=lambda item: 0 if str(item[1]).lower() == "video" else 1)
-
+            
+            # Видео и клипы показываем первыми, затем фото
+            normalized_media.sort(key=lambda item: 0 if str(item[1]).lower() in ("video", "clip") else 1)
+            
+            print(f"[DEBUG] Пост {post_id}: найдено {len(normalized_media)} медиафайлов")
+            for i, (p, t) in enumerate(normalized_media):
+                print(f"  [{i}] {t} → {p[:80]}...")
+            
             if normalized_media:
                 media_block = self._create_media_collection_widget(normalized_media, post_id)
-                post_layout.addWidget(media_block)
+                layout.addWidget(media_block)
 
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet(f"background-color: {colors['separator']}; min-height: 1px; border: none;")
-        post_layout.addWidget(line)
-
-        return post_frame
-
-    def _create_media_widget(self, media_path, media_type, post_id, target_w=None, target_h=None):
-        if media_type.lower() == 'photo':
-            return self._create_photo_widget(media_path, target_w=target_w, target_h=target_h)
-        elif media_type.lower() == 'video':
-            return self._create_video_widget(media_path, post_id, target_w=target_w, target_h=target_h)
-        return None
+        line.setStyleSheet(f"background-color: {c['separator']}; min-height: 1px; border: none;")
+        layout.addWidget(line)
+        return frame
 
     def _create_media_collection_widget(self, media_items, post_id):
-        """VK-подобный блок медиа: только сетка (без карусели)."""
+        """VK-подобный блок медиа: показывает ВСЕ фото/видео"""
         colors = self._theme_colors()
         wrapper = QFrame()
-        wrapper.setStyleSheet(
-            f"QFrame {{background-color: transparent; border: none;}}"
-        )
+        wrapper.setStyleSheet("QFrame {background-color: transparent; border: none;}")
         wrapper_layout = QVBoxLayout(wrapper)
         wrapper_layout.setContentsMargins(0, 4, 0, 0)
         wrapper_layout.setSpacing(10)
 
+        # Счетчик медиа
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
-
         media_count = len(media_items)
         count_label = QLabel(f"Медиа: {media_count}")
         count_label.setStyleSheet(f"color: {colors['muted']}; font-size: 12px; font-weight: 600;")
@@ -904,176 +823,151 @@ class StoragePage(QWidget):
         top_row.addStretch()
         wrapper_layout.addLayout(top_row)
 
-        grid_page = QWidget()
-        grid_layout = QGridLayout(grid_page)
-        grid_layout.setContentsMargins(0, 0, 0, 0)
-        grid_layout.setHorizontalSpacing(10)
-        grid_layout.setVerticalSpacing(10)
+        # 🔧 СЕТКА медиа: видео выводим крупно, фото — компактной сеткой
+        videos = [item for item in media_items if str(item[1]).lower() in ("video", "clip")]
+        photos = [item for item in media_items if str(item[1]).lower() not in ("video", "clip")]
 
         content_w = self._content_width()
-        cols = 3 if content_w >= 1080 else 2
-        cell_w = max(220, min(380, (content_w - ((cols - 1) * 10)) // cols))
-        cell_h = 260 if cols == 3 else 300
+        photo_columns = 1
+        if content_w >= 1000:
+            photo_columns = 4
+        elif content_w >= 760:
+            photo_columns = 3
+        elif content_w >= 520:
+            photo_columns = 2
 
-        row = 0
-        col = 0
-        for idx, (path, media_type) in enumerate(media_items):
-            is_video = str(media_type).lower() == "video"
-            span = 2 if is_video and cols > 1 else 1
-
-            if is_video and col != 0:
-                row += 1
-                col = 0
-
-            tile_w = (cell_w * span) + (10 * (span - 1))
-            media_h = cell_h + (120 if is_video else 0)
+        # Видео выводим отдельным блоком по ширине
+        for idx, (path, media_type) in enumerate(videos):
             media_widget = self._create_media_widget(
-                path,
-                media_type,
-                f"{post_id}_{idx}_grid",
-                target_w=tile_w,
-                target_h=media_h
+                path, media_type, f"{post_id}_video_{idx}",
+                target_w=min(800, content_w - 40), target_h=420
             )
             if media_widget:
-                media_widget.setFixedWidth(tile_w)
-                media_widget.setMinimumHeight(media_h)
-                media_widget.setMaximumHeight(media_h + 20)
-                grid_layout.addWidget(media_widget, row, col, 1, span)
+                wrapper_layout.addWidget(media_widget)
 
-            if is_video:
-                row += 1
-                col = 0
-            else:
-                col += 1
-                if col >= cols:
-                    row += 1
-                    col = 0
+        if photos:
+            grid_page = QWidget()
+            grid_layout = QGridLayout(grid_page)
+            grid_layout.setContentsMargins(0, 0, 0, 0)
+            grid_layout.setSpacing(10)
 
-        wrapper_layout.addWidget(grid_page)
+            for idx, (path, media_type) in enumerate(photos):
+                row = idx // photo_columns
+                col = idx % photo_columns
+                tile_w = min(280, max(220, (content_w - (photo_columns - 1) * 10) // photo_columns))
+                tile_h = 220
+                media_widget = self._create_media_widget(
+                    path, media_type, f"{post_id}_photo_{idx}",
+                    target_w=tile_w, target_h=tile_h
+                )
+                if media_widget:
+                    grid_layout.addWidget(media_widget, row, col)
+
+            wrapper_layout.addWidget(grid_page)
+
         return wrapper
+
+    def _create_media_widget(self, media_path, media_type, post_id, target_w=None, target_h=None):
+        if media_type.lower() == 'photo':
+            return self._create_photo_widget(media_path, target_w, target_h)
+        return self._create_video_widget(media_path, post_id, target_w, target_h)
 
     def _create_photo_widget(self, media_path, target_w=None, target_h=None):
         colors = self._theme_colors()
         target_w = target_w or min(680, self._content_width())
-        target_h = target_h or 320
+        target_h = target_h or 400  # 🔧 УВЕЛИЧИЛИ высоту!
+        
         photo_label = QLabel()
         photo_label.setAlignment(Qt.AlignCenter)
         photo_label.setMinimumHeight(target_h)
-        photo_label.setMaximumHeight(target_h)
+        photo_label.setMaximumHeight(target_h + 50)
         photo_label.setStyleSheet(f"background-color: {colors['media_bg']}; border-radius: 12px;")
         
         if os.path.exists(media_path):
             pixmap = QPixmap(media_path)
+            # 🔧 KeepAspectRatio вместо KeepAspectRatioByExpanding
             fit_pixmap = pixmap.scaled(target_w, target_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             photo_label.setPixmap(fit_pixmap)
         else:
-            photo_label.setText("📷 Фото не найдено")
+            photo_label.setText("Фото не найдено")
             photo_label.setStyleSheet(f"color: {colors['empty']}; font-size: 14px;")
         return photo_label
 
-    def _create_video_widget(self, video_path, post_id, target_w=None, target_h=None):
-        # Создаем QStackedWidget вместо QStackedLayout
-        colors = self._theme_colors()
-        target_h = target_h or 320
+    def _create_video_widget(self, video_path, post_id, target_w, target_h):
+        c = self._theme_colors()
         stack = QStackedWidget()
-        stack.setMinimumHeight(target_h)
-        stack.setMaximumHeight(target_h + 20)
-        stack.setStyleSheet(f"background-color: {colors['media_bg']}; border-radius: 12px;")
+        stack.setFixedSize(target_w, target_h)
+        stack.setStyleSheet(f"background-color: {c['media_bg']}; border-radius: 10px;")
 
-        # Страница 0: Превью
         thumb_page = QWidget()
         thumb_layout = QVBoxLayout(thumb_page)
         thumb_layout.setContentsMargins(0, 0, 0, 0)
+
+        thumb_lbl = QLabel()
+        thumb_lbl.setAlignment(Qt.AlignCenter)
+        thumb_lbl.setCursor(Qt.PointingHandCursor)
         
-        thumb_label = QLabel()
-        thumb_label.setAlignment(Qt.AlignCenter)
-        thumb_label.setCursor(Qt.PointingHandCursor)
-        
-        thumbnail = self._generate_thumbnail(video_path)
-        if thumbnail and os.path.exists(thumbnail):
-            frame_h = max(220, target_h - 70)
-            cover = self._build_cover_pixmap(thumbnail, target_w or self._content_width(), frame_h)
-            thumb_label.setPixmap(cover)
+        thumb = self._generate_thumbnail(video_path)
+        if thumb and os.path.exists(thumb):
+            px = QPixmap(thumb)
+            px = px.scaled(target_w, target_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            thumb_lbl.setPixmap(px)
         else:
-            thumb_label.setText("🎬")
-            thumb_label.setStyleSheet(f"color: {colors['empty']}; font-size: 60px; background-color: {colors['media_bg']};")
-            
-        thumb_layout.addWidget(thumb_label)
+            thumb_lbl.setText("Видео")
+            thumb_lbl.setStyleSheet(f"color: {c['empty']}; font-size: 40px; background-color: {c['media_bg']};")
+
+        thumb_layout.addWidget(thumb_lbl)
+
+        play_icon = QLabel("▶")
+        play_icon.setAlignment(Qt.AlignCenter)
+        play_icon.setStyleSheet("background-color: rgba(0,0,0,0.6); color: white; border: 2px solid white; border-radius: 20px; font-size: 20px; padding: 8px 14px;")
         
-        # Иконка поверх
-        icon_overlay = QLabel("▶")
-        icon_overlay.setAlignment(Qt.AlignCenter)
-        icon_overlay.setStyleSheet("""
-            QLabel { background-color: rgba(0,0,0,0.6); color: white; border: 2px solid white;
-                    border-radius: 25px; font-size: 30px; padding: 10px 18px; }
-        """)
-        
-        overlay_stack = QStackedLayout(thumb_page)
-        overlay_stack.setStackingMode(QStackedLayout.StackAll)
-        overlay_stack.addWidget(thumb_label)
-        overlay_stack.addWidget(icon_overlay)
-        
+        overlay = QStackedLayout(thumb_page)
+        overlay.setStackingMode(QStackedLayout.StackAll)
+        overlay.addWidget(thumb_lbl)
+        overlay.addWidget(play_icon)
         stack.addWidget(thumb_page)
-        
-        # Страница 1: Контейнер плеера
+
         player_page = QWidget()
-        player_page.setStyleSheet(f"background-color: {colors['media_bg']};")
-        player_layout = QVBoxLayout(player_page)
-        player_layout.setContentsMargins(0, 0, 0, 0)
+        player_page.setStyleSheet(f"background-color: {c['media_bg']};")
+        pl_layout = QVBoxLayout(player_page)
+        pl_layout.setContentsMargins(0, 0, 0, 0)
         stack.addWidget(player_page)
-        
-        def click_handler(event, path=video_path, pid=post_id, s=stack, pl=player_layout):
-            self._play_video(path, pid, s, pl)
-            
-        thumb_page.mousePressEvent = click_handler
-        
+
+        def click(ev, p=video_path, pid=post_id, s=stack, pl=pl_layout):
+            self._play_video(p, pid, s, pl, target_h)
+        thumb_page.mousePressEvent = click
         return stack
 
-    def _play_video(self, video_path, post_id, stack, player_layout):
-        if not os.path.exists(video_path):
-            QMessageBox.warning(self, "Ошибка", "Видео файл не найден!")
-            return
-
+    def _play_video(self, video_path, post_id, stack, player_layout, target_h=320):
+        if not os.path.exists(video_path): return
         if post_id in self.active_players:
             stack.setCurrentIndex(1)
             return
 
-        while player_layout.count():
-            player_layout.takeAt(0).widget().deleteLater()
+        while player_layout.count(): player_layout.takeAt(0).widget().deleteLater()
 
         player = QMediaPlayer()
-        video_widget = QVideoWidget()
-        video_widget.setMinimumHeight(max(260, stack.minimumHeight() - 70))
-        video_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        player.setVideoOutput(video_widget)
-        
+        video_w = QVideoWidget()
+        video_w.setMinimumHeight(max(200, target_h - 60))
+        video_w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        video_w.setAspectRatioMode(Qt.KeepAspectRatio) # Вертикальные клипы не обрезаются
+        player.setVideoOutput(video_w)
+
         audio = QAudioOutput()
         audio.setVolume(1.0)
         player.setAudioOutput(audio)
         player.setSource(QUrl.fromLocalFile(video_path))
-        
-        # Создаем контролы и получаем ссылки
-        controls, play_btn, timeline, time_label = self._create_video_controls(post_id)
-        
-        player_layout.addWidget(video_widget)
+
+        controls, _, _, _ = self._create_video_controls(post_id)
+        player_layout.addWidget(video_w)
         player_layout.addWidget(controls)
-        
-        # Сохраняем ВСЕ ссылки в словаре
-        self.active_players[post_id] = {
-            'player': player,
-            'stack': stack,
-            'controls': controls,
-            'video_widget': video_widget,
-            'play_pause_btn': play_btn,
-            'timeline': timeline,
-            'time_label': time_label,
-            'seeking': False
-        }
-        
+
+        self.active_players[post_id] = {'player': player, 'stack': stack, 'controls': controls, 'video_widget': video_w, 'seeking': False}
         player.positionChanged.connect(lambda pos, pid=post_id: self._update_timeline(pid, pos))
         player.durationChanged.connect(lambda dur, pid=post_id: self._update_duration(pid, dur))
         player.playbackStateChanged.connect(lambda state, pid=post_id: self._on_playback_changed(pid, state))
-        
+
         stack.setCurrentIndex(1)
         player.play()
         controls.setVisible(True)
@@ -1160,120 +1054,71 @@ class StoragePage(QWidget):
         
         controls_widget.setVisible(False)
         
-        # Возвращаем все необходимые виджеты
+        # ВОЗВРАЩАЕМ КОРТЕЖ!
         return controls_widget, play_pause_btn, timeline, time_label
 
     def _toggle_play_pause(self, post_id):
         data = self.active_players.get(post_id)
-        if not data: 
-            return
-        try:
-            player = data['player']
-            btn = data.get('play_pause_btn')
-            if player.isPlaying(): 
-                player.pause()
-                if btn: btn.setText("▶")
-            else: 
-                player.play()
-                if btn: btn.setText("⏸")
-        except RuntimeError: 
-            pass
-
-    def _seek_video(self, post_id):
-        data = self.active_players.get(post_id)
-        if not data: 
-            return
-        try:
-            timeline = data.get('timeline')
-            player = data['player']
-            if timeline and player: 
-                player.setPosition(timeline.value())
-        except RuntimeError: 
-            pass
+        if not data: return
+        player = data['player']
+        if player.playbackState() == QMediaPlayer.PlayingState:
+            player.pause()
+        else:
+            player.play()
 
     def _on_slider_pressed(self, post_id):
-        """Пользователь начал тянуть ползунок"""
         data = self.active_players.get(post_id)
-        if data:
-            data['seeking'] = True
+        if not data: return
+        data['seeking'] = True
 
     def _on_slider_released(self, post_id):
-        """Пользователь отпустил ползунок -> применяем перемотку"""
         data = self.active_players.get(post_id)
         if not data: return
         try:
             slider = data['controls'].findChild(QSlider)
-            player = data['player']
-            if slider and player:
-                player.setPosition(slider.value())
-            data['seeking'] = False
-        except RuntimeError: pass
+            if slider:
+                data['player'].setPosition(slider.value())
+        except: pass
+        data['seeking'] = False
 
     def _update_timeline(self, post_id, pos):
-        """Обновление таймлайна и времени"""
         data = self.active_players.get(post_id)
-        if not data: return
+        if not data or data.get('seeking'): return
         try:
-            # ⛔ ГЛАВНОЕ ИСПРАВЛЕНИЕ: не двигаем ползунок, если пользователь его тянет
-            if data.get('seeking', False):
-                return
-                
             slider = data['controls'].findChild(QSlider)
             lbl = data['controls'].findChild(QLabel)
-            dur = data['player'].duration()
-            
             if slider: slider.setValue(pos)
-            if lbl: lbl.setText(f"{self._fmt(pos)} / {self._fmt(dur)}")
-        except RuntimeError: pass
+            if lbl: lbl.setText(f"{self._fmt(pos)} / {self._fmt(data['player'].duration())}")
+        except: pass
 
     def _update_duration(self, post_id, dur):
         data = self.active_players.get(post_id)
-        if not data: 
-            return
+        if not data: return
         try:
-            timeline = data.get('timeline')
-            time_label = data.get('time_label')
-            if timeline: 
-                timeline.setMaximum(dur)
-            if time_label: 
-                time_label.setText(f"0:00 / {self._fmt(dur)}")
-        except RuntimeError: 
-            pass
+            t = data.get('timeline') or data['controls'].findChild(QSlider)
+            l = data.get('time_label') or data['controls'].findChild(QLabel)
+            if t: t.setMaximum(dur)
+            if l: l.setText(f"0:00 / {self._fmt(dur)}")
+        except: pass
 
     def _on_playback_changed(self, post_id, state):
-        from PySide6.QtMultimedia import QMediaPlayer
         data = self.active_players.get(post_id)
-        if not data: 
-            return
+        if not data: return
         try:
-            btn = data.get('play_pause_btn')
-            if btn:
-                if state == QMediaPlayer.PlayingState:
-                    btn.setText("⏸")
-                elif state == QMediaPlayer.PausedState:
-                    btn.setText("▶")
-            if state == QMediaPlayer.StoppedState:
-                self._stop_video(post_id)
-        except RuntimeError: 
-            pass
+            btn = data['controls'].findChild(QPushButton)
+            if state == QMediaPlayer.PlayingState and btn: btn.setText("⏸")
+            elif state == QMediaPlayer.PausedState and btn: btn.setText("▶")
+            if state == QMediaPlayer.StoppedState: self._stop_video(post_id)
+        except: pass
 
     def _stop_video(self, post_id):
         data = self.active_players.pop(post_id, None)
-        if not data: 
-            return
+        if not data: return
         try:
-            player = data['player']
-            stack = data['stack']
-            
-            player.blockSignals(True)
-            player.stop()
-            
-            if stack: 
-                stack.setCurrentIndex(0)
-            
-            player.deleteLater()
-        except RuntimeError: 
-            pass
+            data['player'].stop()
+            data['stack'].setCurrentIndex(0)
+            data['player'].deleteLater()
+        except: pass
 
     def _fmt(self, ms):
         s = ms // 1000
@@ -1281,19 +1126,16 @@ class StoragePage(QWidget):
 
     def _generate_thumbnail(self, video_path):
         try:
-            if not os.path.exists(video_path): 
-                return None
+            if not os.path.exists(video_path): return None
             d = os.path.join(os.path.dirname(video_path), "thumbnails")
             os.makedirs(d, exist_ok=True)
-            tp = os.path.join(d, os.path.basename(video_path) + ".thumb.jpg")
-            if os.path.exists(tp): 
-                return tp
-            import subprocess
-            subprocess.run(['ffmpeg', '-i', video_path, '-ss', '00:00:01', '-vframes', '1', '-vf', 'scale=800:-1', '-y', tp],
-                           capture_output=True, timeout=15)
-            return tp if os.path.exists(tp) else None
-        except: 
+            tp = os.path.join(d, os.path.basename(video_path).rsplit('.', 1)[0] + ".thumb.jpg")
+            if os.path.exists(tp): return tp
+            # Поиск скачанной миниатюры от VK API
+            alt = video_path.replace('.mp4', '_thumb.jpg')
+            if os.path.exists(alt): return alt
             return None
+        except: return None
 
     def update_styles(self, styles):
         self.styles = styles
@@ -1350,7 +1192,7 @@ class VideoPlayerWidget(QWidget):
             scaled_pixmap = pixmap.scaled(500, 500, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.thumbnail_label.setPixmap(scaled_pixmap)
         else:
-            self.thumbnail_label.setText("🎬")
+            self.thumbnail_label.setText("Видео")
             self.thumbnail_label.setStyleSheet("color: #888888; font-size: 64px; background-color: #1e1e1e;")
         
         thumbnail_layout.addWidget(self.thumbnail_label)
@@ -1642,7 +1484,7 @@ class SettingsPage(QWidget):
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(20)
 
-        header = QLabel("⚙️ Настройки приложения")
+        header = QLabel("Настройки приложения")
         header.setStyleSheet(self._get_header_style())
         self.header_label = header
         layout.addWidget(header)
@@ -1663,7 +1505,7 @@ class SettingsPage(QWidget):
         theme_layout.addWidget(theme_label, 0, 0)
 
         # Кнопка переключения темы (вместо ComboBox)
-        self.theme_toggle_btn = QPushButton("🌓 Тёмная тема")
+        self.theme_toggle_btn = QPushButton("Тёмная тема")
         self.theme_toggle_btn.setCheckable(True)
         self.theme_toggle_btn.setMinimumHeight(45)
         self.theme_toggle_btn.clicked.connect(self.on_theme_toggle)
@@ -1685,7 +1527,7 @@ class SettingsPage(QWidget):
         # КАЧЕСТВО WEBP
         webp_layout = QGridLayout()
         webp_layout.setSpacing(15)
-        webp_label = QLabel("🖼️ Качество WebP (1-100):")
+        webp_label = QLabel("Качество WebP (1-100):")
         webp_label.setStyleSheet(self._get_label_style())
         webp_layout.addWidget(webp_label, 0, 0)
         self.webp_quality = QLineEdit("80")
@@ -1697,7 +1539,7 @@ class SettingsPage(QWidget):
         # КАЧЕСТВО ВИДЕО
         video_layout = QGridLayout()
         video_layout.setSpacing(15)
-        video_label = QLabel("🎥 Качество видео CRF (18-28):")
+        video_label = QLabel("Качество видео CRF (18-28):")
         video_label.setStyleSheet(self._get_label_style())
         video_layout.addWidget(video_label, 0, 0)
         self.video_crf = QLineEdit("23")
@@ -1709,7 +1551,7 @@ class SettingsPage(QWidget):
         # ПАПКА СОХРАНЕНИЯ
         folder_layout = QGridLayout()
         folder_layout.setSpacing(15)
-        folder_label = QLabel("📁 Папка для сохранения:")
+        folder_label = QLabel("Папка для сохранения:")
         folder_label.setStyleSheet(self._get_label_style())
         folder_layout.addWidget(folder_label, 0, 0)
         folder_input_layout = QHBoxLayout()
@@ -1726,7 +1568,7 @@ class SettingsPage(QWidget):
 
         settings_layout.addStretch()
 
-        self.save_btn = QPushButton("💾 Сохранить настройки")
+        self.save_btn = QPushButton("Сохранить настройки")
         self.save_btn.setStyleSheet(self.styles['button'])
         self.save_btn.setMinimumHeight(50)
         self.save_btn.setFont(QFont("Arial", 12, QFont.Bold))
@@ -1755,7 +1597,7 @@ class SettingsPage(QWidget):
 
     def _update_theme_button_style(self):
         if STYLES._theme == 'light':
-            self.theme_toggle_btn.setText("☀️ Светлая тема")
+            self.theme_toggle_btn.setText("Светлая тема")
             self.theme_toggle_btn.setChecked(True)
             self.theme_toggle_btn.setStyleSheet("""
                 QPushButton {
@@ -1773,7 +1615,7 @@ class SettingsPage(QWidget):
                 }
             """)
         else:
-            self.theme_toggle_btn.setText("🌓 Тёмная тема")
+            self.theme_toggle_btn.setText("Тёмная тема")
             self.theme_toggle_btn.setChecked(False)
             self.theme_toggle_btn.setStyleSheet("""
                 QPushButton {
@@ -1816,11 +1658,11 @@ class SettingsPage(QWidget):
         QMessageBox.information(
             self,
             "Настройки сохранены",
-            f"✅ Тема: {'Светлая' if theme == 'light' else 'Тёмная'}\n\n"
-            f"🖼️ WebP качество: {self.webp_quality.text()}\n"
-            f"🎥 Видео CRF: {self.video_crf.text()}\n"
-            f"📁 Папка: {self.folder_input.text()}\n\n"
-            "⚠️ Изменения темы применятся после перезапуска приложения!"
+            f"Тема: {'Светлая' if theme == 'light' else 'Тёмная'}\n\n"
+            f"WebP качество: {self.webp_quality.text()}\n"
+            f"Видео CRF: {self.video_crf.text()}\n"
+            f"Папка: {self.folder_input.text()}\n\n"
+            "Изменения темы применятся после перезапуска приложения!"
         )
 
     def get_theme(self):
@@ -1846,7 +1688,7 @@ class AboutPage(QWidget):
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(20)
 
-        header = QLabel("ℹ️ О программе")
+        header = QLabel("О программе")
         text_color = '#000000' if STYLES._theme == 'light' else '#ffffff'
         header.setStyleSheet(f"color: {text_color}; font-size: 22px; font-weight: bold; padding: 10px 0;")
         self.header_label = header
@@ -1870,11 +1712,11 @@ class AboutPage(QWidget):
             оптимизации и индексации контента из ВКонтакте.
 
             Возможности:
-            • 📥 Загрузка фото и видео из групп
-            • 🖼️ Конвертация фото в WebP
-            • 🎥 Обработка видео с улучшением качества
-            • 🏷️ Авто-тегирование контента
-            • 🔍 Быстрый поиск по архиву
+            • Загрузка фото и видео из групп
+            • Конвертация фото в WebP
+            • Обработка видео с улучшением качества
+            • Авто-тегирование контента
+            • Быстрый поиск по архиву
         """)
         desc_color = '#666666' if STYLES._theme == 'light' else '#d4d4d4'
         desc_label.setStyleSheet(f"color: {desc_color}; font-size: 13px; line-height: 1.6;")
@@ -1986,7 +1828,7 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.status_bar.setStyleSheet(self.styles['statusbar'])
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("✅ Готов к работе")
+        self.status_bar.showMessage("Готов к работе")
 
         self.sidebar.buttons['download'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['search'].clicked_signal.connect(self.switch_page)
@@ -2044,10 +1886,11 @@ class MainWindow(QMainWindow):
             stats = db.get_stats()
             db.close()
             self.status_bar.showMessage(
-                f"📊 Всего: {stats['total']} | "
-                f"📷 Фото: {stats['photos']} | "
-                f"🎬 Видео: {stats['videos']} | "
-                f"📁 Папка: vk_archive_data/"
+                f"Всего постов: {stats['total']} | "
+                f"Фото: {stats['photos']} | "
+                f"Видео: {stats['videos']} | "
+                f"Клипы: {stats['clips']} | "
+                f"Папка: vk_archive_data/"
             )
             self.stats_page.total_value.setText(str(stats['total']))
             self.stats_page.photo_value.setText(str(stats['photos']))
@@ -2085,7 +1928,7 @@ class MainWindow(QMainWindow):
     def download_finished(self):
         self.download_page.progress_bar.setVisible(False)
         self.download_page.download_btn.setEnabled(True)
-        self.log("✅ Загрузка завершена!")
+        self.log("Загрузка завершена")
         self.update_stats()
         self.storage_page.update_storage_stats()
         QMessageBox.information(
@@ -2097,7 +1940,7 @@ class MainWindow(QMainWindow):
     def download_error(self, error_msg):
         self.download_page.progress_bar.setVisible(False)
         self.download_page.download_btn.setEnabled(True)
-        self.log(f"❌ Ошибка: {error_msg}")
+        self.log(f"Ошибка: {error_msg}")
         QMessageBox.critical(self, "Ошибка", f"Произошла ошибка:\n\n{error_msg}")
 
     def search_posts(self):
@@ -2105,7 +1948,7 @@ class MainWindow(QMainWindow):
         self.search_page.results_text.clear()
         
         if not query:
-            self.search_page.results_text.append("⚠️ Введите запрос для поиска.\n")
+            self.search_page.results_text.append("Введите запрос для поиска.\n")
             return
         
         db = Database()
@@ -2113,11 +1956,11 @@ class MainWindow(QMainWindow):
         db.close()
         
         if not results:
-            self.search_page.results_text.append("❌ Ничего не найдено.\n")
-            self.log("📭 Ничего не найдено")
+            self.search_page.results_text.append("Ничего не найдено.\n")
+            self.log("Ничего не найдено")
             return
         
-        self.search_page.results_text.append(f"✅ Найдено постов: {len(results)}\n")
+        self.search_page.results_text.append(f"Найдено постов: {len(results)}\n")
         self.search_page.results_text.append("=" * 60 + "\n\n")
         
         for i, row in enumerate(results, 1):
@@ -2129,36 +1972,49 @@ class MainWindow(QMainWindow):
             paths_list = media_paths.split(',') if media_paths else []
             sizes_list = file_sizes.split(',') if file_sizes else []
             
-            self.search_page.results_text.append(f"📌 Пост #{i}\n")
-            self.search_page.results_text.append(f"📅 Дата: {date}\n")
-            self.search_page.results_text.append(f"🆔 Post ID: {original_post_id}\n")
-            self.search_page.results_text.append(f"🏷 Теги: {tags if tags else 'Нет'}\n")
+            self.search_page.results_text.append(f"Пост #{i}\n")
+            self.search_page.results_text.append(f"Дата: {date}\n")
+            self.search_page.results_text.append(f"ID поста: {original_post_id}\n")
+            self.search_page.results_text.append(f"Теги: {tags if tags else 'Нет'}\n")
             
             # Показываем все медиа поста
-            self.search_page.results_text.append(f"📎 Медиа ({len(types_list)}):")
+            self.search_page.results_text.append(
+                f"Медиа (фото/видео/клипы): {len(types_list)}")
             for j, (mtype, mpath, msize) in enumerate(zip(types_list, paths_list, sizes_list), 1):
-                self.search_page.results_text.append(f"\n   {j}. {mtype.upper()} ({msize}) → {mpath}")
+                type_label = {
+                    'photo': 'Фото',
+                    'video': 'Видео',
+                    'clip': 'Клип'
+                }.get(mtype.strip().lower(), mtype)
+                self.search_page.results_text.append(f"\n   {j}. {type_label} ({msize}) → {mpath}")
             
-            self.search_page.results_text.append(f"\n📝 Текст: {preview}\n")
+            self.search_page.results_text.append(f"\nТекст: {preview}\n")
             self.search_page.results_text.append("=" * 60 + "\n\n")
         
-        self.log(f"✅ Найдено: {len(results)} постов")
+        self.log(f"Найдено: {len(results)} постов")
 
     def clear_results(self):
         self.search_page.results_text.clear()
         self.search_page.search_input.clear()
-        self.log("🗑 Результаты очищены")
+        self.log("Результаты очищены")
 
     def load_storage_posts(self):
         """Загрузка постов в хранилище"""
         try:
             db = Database()
-            posts = db.get_all_posts(limit=100)  # Получаем последние 100 постов
+            posts = db.get_all_posts(limit=100)
             db.close()
+            
+            print(f"[Storage] Загружено {len(posts)} постов из БД")
+            for i, post in enumerate(posts[:3]):  # Первые 3 для отладки
+                print(f"  Post {i}: ID={post[0]}, date={post[2]}, media_types={post[5]}, media_paths={post[6]}")
+            
             self.storage_page.load_posts(posts)
             self.storage_page.update_storage_stats()
         except Exception as e:
-            print(f"Error loading storage: {e}")
+            print(f"[Storage] Error loading posts: {e}")
+            import traceback
+            traceback.print_exc()
 
     def switch_page(self, page_name):
         for btn in self.sidebar.buttons.values():

@@ -7,12 +7,13 @@ from typing import Dict, List, Tuple
 from collections import defaultdict
 from pathlib import Path
 import json
+import re
 
 import pandas as pd
 
 from core.database import Database
 from core.period_calculator import PeriodCalculator
-from core.employee_tagger import extract_employees_from_html, remove_duplicates
+from core.employee_tagger import extract_employees_from_html, remove_duplicates, normalize_name
 
 
 class StatisticsAnalyzer:
@@ -26,6 +27,7 @@ class StatisticsAnalyzer:
     
     def load_employee_list(self) -> List[str]:
         """Загружает список преподавателей из файла employees_unique.xlsx"""
+        file_employees = []
         if self.EMPLOYEE_LIST_PATH.exists():
             try:
                 df = pd.read_excel(self.EMPLOYEE_LIST_PATH)
@@ -35,11 +37,180 @@ class StatisticsAnalyzer:
                     names = df['ФИО'].dropna().astype(str).tolist()
                 else:
                     names = df.iloc[:, 0].dropna().astype(str).tolist()
-                names = [name.strip() for name in names if name and len(name.strip()) > 3]
-                return remove_duplicates(names)
+                file_employees = [normalize_name(name.strip()) for name in names if name and len(name.strip()) > 3 and self.is_human_name(normalize_name(name.strip()))]
             except Exception:
-                return []
-        return []
+                file_employees = []
+        
+        # Извлекаем преподавателей из постов
+        post_employees = self.extract_employees_from_posts()
+        
+        # Объединяем и удаляем дубликаты
+        all_employees = file_employees + post_employees
+        return remove_duplicates(all_employees)
+    
+    def extract_employees_from_posts(self) -> List[str]:
+        """Извлекает имена преподавателей из текста постов"""
+        
+        # Получаем все посты
+        posts = self.db.get_all_posts()
+        employees = []
+        
+        # Паттерны для поиска имен
+        # Ф.И.О. формат
+        fio_pattern = re.compile(r'\b[А-ЯЁ]\.\s*[А-ЯЁ]\.\s*[А-ЯЁ][а-яё]+\b')
+        # Имя Отчество Фамилия
+        full_name_pattern = re.compile(r'\b[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\b')
+        # Фамилия И.О.
+        surname_io_pattern = re.compile(r'\b[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.\s*[А-ЯЁ]\.\b')
+        
+        for post in posts:
+            text = post[2] or ''
+            tags = post[3] or ''
+            full_text = text + ' ' + tags
+            
+            # Ищем по паттернам
+            matches = []
+            matches.extend(fio_pattern.findall(full_text))
+            matches.extend(full_name_pattern.findall(full_text))
+            matches.extend(surname_io_pattern.findall(full_text))
+            
+            for match in matches:
+                normalized = normalize_name(match)
+                if len(normalized) > 3 and self.is_human_name(normalized) and normalized not in employees:
+                    employees.append(normalized)
+        
+        return employees
+    
+    def is_human_name(self, name: str) -> bool:
+        """Проверяет, является ли строка именем человека"""
+        # Разбиваем на слова
+        words = name.split()
+        
+        # Должно быть 2-4 слова
+        if not 2 <= len(words) <= 4:
+            return False
+        
+        # Каждое слово должно начинаться с заглавной буквы
+        for word in words:
+            if not word[0].isupper():
+                return False
+        
+        # Не должно содержать цифр
+        if any(char.isdigit() for char in name):
+            return False
+        
+        # Не должно содержать определенных слов, указывающих на не-человеческие сущности
+        non_human_words = [
+            'представители', 'регионального', 'центр', 'институт', 'факультет',
+            'кафедра', 'отдел', 'служба', 'управление', 'комитет', 'совет',
+            'ассоциация', 'организация', 'компания', 'фирма', 'завод', 'школа',
+            'колледж', 'университет', 'академия'
+        ]
+        
+        name_lower = name.lower()
+        for word in non_human_words:
+            if word in name_lower:
+                return False
+        
+        # Для Ф.И.О. формата - проверяем отдельно
+        if '.' in name:
+            # Разбиваем по точкам и пробелам
+            parts = re.split(r'[.\s]+', name)
+            parts = [p for p in parts if p]  # Убираем пустые
+            
+            if len(parts) == 3:
+                # Ф.И.О. - первые две части должны быть однобуквенными, третья - словом
+                if (len(parts[0]) == 1 and len(parts[1]) == 1 and len(parts[2]) > 1 and
+                    all(p[0].isupper() for p in parts)):
+                    return True
+            elif len(parts) == 2:
+                # Фамилия И.О.
+                if (len(parts[0]) > 1 and len(parts[1]) == 2 and 
+                    parts[1][1] == '.' and all(p[0].isupper() for p in parts)):
+                    return True
+            else:
+                return False
+        
+        return True
+    
+    def normalize_employee_name_for_display(self, name: str) -> str:
+        """Нормализует имя преподавателя для отображения в формате 'Фамилия Имя Отчество'"""
+        parts = name.split()
+        
+        # Если в формате "Ф.И.О." - ищем соответствующее полное имя
+        if '.' in name:
+            # Получаем все имена преподавателей
+            all_employees = self.load_employee_list()
+            
+            # Ищем полное имя, которое соответствует этому сокращению
+            for full_name in all_employees:
+                if self._matches_abbreviation(name, full_name):
+                    return full_name
+            
+            # Если не нашли, возвращаем как есть
+            return name
+        
+        # Для полных имен - приводим к формату "Фамилия Имя Отчество"
+        if len(parts) == 3:
+            # Определяем порядок: если последнее слово выглядит как фамилия (с заглавной буквы,
+            # и не является типичным именем), то переставляем
+            last_word = parts[2]
+            if (last_word[0].isupper() and 
+                not last_word.endswith('вич') and not last_word.endswith('вна') and
+                len(last_word) > 2):
+                # Предполагаем "Имя Отчество Фамилия" -> "Фамилия Имя Отчество"
+                return f"{last_word} {parts[0]} {parts[1]}"
+            else:
+                # Уже в правильном формате или не уверены
+                return name
+        
+        return name
+    
+    def _matches_abbreviation(self, abbr: str, full_name: str) -> bool:
+        """Проверяет, соответствует ли сокращение полному имени"""
+        abbr = abbr.replace(' ', '').replace('.', '')
+        full_parts = full_name.split()
+        
+        if len(full_parts) >= 3:
+            # Берем первые буквы имени и отчества + фамилию
+            expected_abbr = f"{full_parts[1][0]}{full_parts[2][0]}{full_parts[0]}"
+            return abbr.lower() == expected_abbr.lower()
+        
+        return False
+    
+    def get_employee_name_variants(self, employee: str) -> List[str]:
+        """Генерирует варианты имени для поиска"""
+        variants = [employee.lower()]
+        
+        # Разбиваем на части
+        parts = employee.split()
+        if len(parts) >= 2:
+            # Предполагаем, что фамилия - последняя часть
+            surname = parts[-1]
+            variants.append(surname.lower())
+            
+            if len(parts) >= 3:
+                # Для формата "Имя Отчество Фамилия"
+                name = parts[0]
+                patronymic = parts[1]
+                surname = parts[2]
+                
+                # Ф.И.О.
+                if len(name) > 0 and len(patronymic) > 0 and len(surname) > 0:
+                    fio = f"{name[0]}.{patronymic[0]}.{surname}"
+                    variants.append(fio.lower())
+                    variants.append(f"{name[0]}.{patronymic[0]} {surname}".lower())
+                
+                # И.О. Фамилия
+                io_surname = f"{name[0]}.{patronymic[0]}. {surname}"
+                variants.append(io_surname.lower())
+                
+                # Полное имя
+                variants.append(f"{name} {patronymic} {surname}".lower())
+                variants.append(f"{name} {surname}".lower())
+                variants.append(f"{patronymic} {surname}".lower())
+        
+        return list(set(variants))  # Удаляем дубликаты
 
     # ===== АНАЛИЗ СТАТИСТИКИ ПОСТОВ =====
     
@@ -207,8 +378,13 @@ class StatisticsAnalyzer:
         results = []
         
         for employee in employees_list:
+            # Получаем варианты имени для поиска
+            name_variants = self.get_employee_name_variants(employee)
+            
             # Подсчитываем упоминания
-            mention_count = self.db.count_employee_mentions(employee, start_str, end_str)
+            mention_count = 0
+            for variant in name_variants:
+                mention_count += self.db.count_employee_mentions(variant, start_str, end_str)
             
             # Подсчитываем посты с преподавателем
             posts = self.db.get_posts_by_date_range(start_str, end_str)
@@ -217,8 +393,11 @@ class StatisticsAnalyzer:
             total_views = 0
             
             for post in posts:
-                post_text = post[2] or ''
-                if employee.lower() in post_text.lower():
+                post_text = (post[2] or '') + ' ' + (post[3] or '')
+                post_text_lower = post_text.lower()
+                
+                # Проверяем, содержит ли пост хотя бы один вариант имени
+                if any(variant in post_text_lower for variant in name_variants):
                     post_count += 1
                     post_stats = self.db.get_post_stats(post[0])
                     if post_stats:
