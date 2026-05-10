@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 import threading
 import time
-
+from core.logging_config import logger
 from core.database import Database
 from core.period_calculator import PeriodCalculator
 from config.settings import PHOTOS_DIR, VIDEOS_DIR, DATA_DIR
@@ -22,6 +22,7 @@ class DataSynchronizer:
         self.period_calc = PeriodCalculator()
         self.sync_thread = None
         self.is_running = False
+        self.stop_event = threading.Event()
     
     # ===== СИНХРОНИЗАЦИЯ ФАЙЛОВ И БД =====
     
@@ -38,69 +39,53 @@ class DataSynchronizer:
                     if extension is None or filename.endswith(extension):
                         files.append(filename)
         except Exception as e:
-            print(f"Error reading directory {directory}: {e}")
+            logger.error(f"Error reading directory {directory}: {e}")
         
         return files
     
     def verify_photo_consistency(self) -> Dict:
-        """Проверяет консистентность фото в БД и папке"""
         files_in_folder = set(self.get_files_in_directory(PHOTOS_DIR, '.webp'))
-        
         missing_in_folder = []
         missing_in_db = []
         
-        # Получаем все фото из БД
-        db_photos = self.db.get_posts_by_date_range('2000-01-01', 
-                                                    (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d'),
-                                                    'photo')
-        
+        # Запрашиваем пути напрямую из таблицы attachments
+        cursor = self.db._get_cursor()
         db_files = set()
-        for post in db_photos:
-            media_paths = post[4]  # media_paths - это GROUP_CONCAT
-            if media_paths:
-                for path in media_paths.split(','):
-                    filename = os.path.basename(path)
-                    db_files.add(filename)
-                    if filename not in files_in_folder:
-                        missing_in_folder.append(path)
+        for row in cursor.execute("SELECT media_path FROM attachments WHERE media_type='photo'").fetchall():
+            if row[0]:
+                filename = os.path.basename(row[0])
+                db_files.add(filename)
+                if filename not in files_in_folder:
+                    missing_in_folder.append(row[0])
         
-        # Ищем файлы, которые есть в папке, но нет в БД
         for file in files_in_folder:
             if file not in db_files:
                 missing_in_db.append(file)
-        
+                
         return {
             'missing_in_folder': missing_in_folder,
             'missing_in_db': missing_in_db,
             'consistency_ok': len(missing_in_folder) == 0 and len(missing_in_db) == 0
         }
-    
+
     def verify_video_consistency(self) -> Dict:
-        """Проверяет консистентность видео в БД и папке"""
         files_in_folder = set(self.get_files_in_directory(VIDEOS_DIR, '.mp4'))
-        
         missing_in_folder = []
         missing_in_db = []
         
-        # Получаем все видео из БД
-        db_videos = self.db.get_posts_by_date_range('2000-01-01',
-                                                   (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d'),
-                                                   'video')
-        
+        cursor = self.db._get_cursor()
         db_files = set()
-        for post in db_videos:
-            media_paths = post[4]
-            if media_paths:
-                for path in media_paths.split(','):
-                    filename = os.path.basename(path)
-                    db_files.add(filename)
-                    if filename not in files_in_folder:
-                        missing_in_folder.append(path)
-        
+        for row in cursor.execute("SELECT media_path FROM attachments WHERE media_type IN ('video', 'clip')").fetchall():
+            if row[0]:
+                filename = os.path.basename(row[0])
+                db_files.add(filename)
+                if filename not in files_in_folder:
+                    missing_in_folder.append(row[0])
+                    
         for file in files_in_folder:
             if file not in db_files:
                 missing_in_db.append(file)
-        
+                
         return {
             'missing_in_folder': missing_in_folder,
             'missing_in_db': missing_in_db,
@@ -149,7 +134,7 @@ class DataSynchronizer:
                 return self.db.update_post_stats(original_post_id, likes, comments, reposts, views)
         
         except Exception as e:
-            print(f"Error updating post {original_post_id} statistics: {e}")
+            logger.error(f"Error updating post {original_post_id} statistics: {e}")
         
         return False
     
@@ -217,17 +202,16 @@ class DataSynchronizer:
             'avg_views': 0
         }
         
-        for post in posts:
-            post_stats = self.db.get_post_stats(post[0])
-            if post_stats:
-                stats['total_likes'] += post_stats['likes']
-                stats['total_comments'] += post_stats['comments']
-                stats['total_shares'] += post_stats['shares']
-                stats['total_views'] += post_stats['views']
-        
-        if len(posts) > 0:
-            stats['avg_likes'] = stats['total_likes'] / len(posts)
-            stats['avg_views'] = stats['total_views'] / len(posts)
+        stats_db = self.db.get_aggregated_stats(start_str, end_str)
+        stats['total_likes'] = stats_db['total_likes']
+        stats['total_comments'] = stats_db['total_comments']
+        stats['total_shares'] = stats_db['total_shares']
+        stats['total_views'] = stats_db['total_views']
+        stats['total_posts'] = stats_db['total_posts']
+
+        if stats['total_posts'] > 0:
+            stats['avg_likes'] = stats['total_likes'] / stats['total_posts']
+            stats['avg_views'] = stats['total_views'] / stats['total_posts']
         
         return stats
     
@@ -243,8 +227,9 @@ class DataSynchronizer:
             sync_interval_hours: интервал синхронизации (часы)
             update_stats: обновлять ли статистику постов
         """
+        self.stop_event.clear()  # Сброс флага
         if self.is_running:
-            print("[Sync] Автоматическая синхронизация уже запущена")
+            logger.info("[Sync] Автоматическая синхронизация уже запущена")
             return
         
         self.is_running = True
@@ -257,29 +242,30 @@ class DataSynchronizer:
             daemon=True
         )
         self.sync_thread.start()
-        print(f"[Sync] Автоматическая синхронизация запущена (интервал: {sync_interval_hours}ч)")
+        logger.info(f"[Sync] Автоматическая синхронизация запущена (интервал: {sync_interval_hours}ч)")
     
     def stop_automatic_sync(self) -> None:
         """Останавливает автоматическую синхронизацию"""
         self.is_running = False
+        self.stop_event.set()  # ← Добавить
         if self.sync_thread and self.sync_thread.is_alive():
             self.sync_thread.join(timeout=5)
-        print("[Sync] Автоматическая синхронизация остановлена")
+        logger.info("[Sync] Автоматическая синхронизация остановлена")
     
     def _sync_worker(self, update_stats: bool) -> None:
         """Рабочий поток для автоматической синхронизации"""
         while self.is_running:
             try:
-                print(f"\n[Sync] Начало синхронизации: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                logger.info(f"\n[Sync] Начало синхронизации: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 
                 # Проверка консистентности файлов
                 consistency_check = self.verify_all_consistency()
                 if not consistency_check['overall_ok']:
-                    print(f"[Sync] ⚠ Обнаружены проблемы консистентности:")
+                    logger.warning(f"[Sync] ⚠ Обнаружены проблемы консистентности:")
                     if consistency_check['photos']['missing_in_db']:
-                        print(f"  - Фото, которые есть в папке, но нет в БД: {len(consistency_check['photos']['missing_in_db'])}")
+                        logger.warning(f"  - Фото, которые есть в папке, но нет в БД: {len(consistency_check['photos']['missing_in_db'])}")
                     if consistency_check['videos']['missing_in_db']:
-                        print(f"  - Видео, которые есть в папке, но нет в БД: {len(consistency_check['videos']['missing_in_db'])}")
+                        logger.warning(f"  - Видео, которые есть в папке, но нет в БД: {len(consistency_check['videos']['missing_in_db'])}")
                 
                 # Обновление статистики постов
                 if update_stats and self.vk_api:
@@ -287,27 +273,27 @@ class DataSynchronizer:
                                                                 (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d'))
                     post_ids = [post[0] for post in all_posts]
                     success, errors = self.batch_update_statistics(post_ids, self.vk_api)
-                    print(f"[Sync] Статистика обновлена: {success} успешно, {errors} ошибок")
+                    logger.info(f"[Sync] Статистика обновлена: {success} успешно, {errors} ошибок")
                 
                 # Рассчитываем статистику за последние периоды
                 for period_type in ['day', 'week', 'month', 'year']:
                     period_stats = self.calculate_period_statistics(period_type)
-                    print(f"[Sync] {period_type.upper()}: {period_stats['total_posts']} постов, "
+                    logger.info(f"[Sync] {period_type.upper()}: {period_stats['total_posts']} постов, "
                           f"{period_stats['total_views']} просмотров")
                 
-                print(f"[Sync] Синхронизация завершена: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                logger.info(f"[Sync] Синхронизация завершена: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 
                 # Ждем перед следующей синхронизацией
-                time.sleep(self.sync_interval)
+                if self.stop_event.wait(timeout=self.sync_interval):
+                    break  # Флаг установлен → выходим из цикла
             
             except Exception as e:
-                print(f"[Sync] ⚠ Ошибка синхронизации: {e}")
+                logger.error(f"[Sync] ⚠ Ошибка синхронизации: {e}")
                 time.sleep(60)  # Пробуем снова через минуту
     
     # ===== УТИЛИТЫ =====
     
     def export_statistics_to_json(self, filename: str = 'statistics.json') -> bool:
-        """Экспортирует статистику в JSON"""
         try:
             overall_stats = {
                 'overall': self.db.get_stats(),
@@ -319,9 +305,9 @@ class DataSynchronizer:
             
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(overall_stats, f, ensure_ascii=False, indent=2)
-            
-            print(f"[Export] Статистика экспортирована в {filename}")
+                
+            logger.info("Статистика экспортирована в %s", filename)
             return True
         except Exception as e:
-            print(f"[Export] Ошибка экспорта: {e}")
+            logger.error("Ошибка экспорта статистики: %s", e, exc_info=True)
             return False

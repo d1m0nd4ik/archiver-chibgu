@@ -1,8 +1,9 @@
 import re
 import os
-import pandas as pd
 from bs4 import BeautifulSoup
 import requests
+from core.logging_config import logger
+from core.database import Database
 
 def normalize_name(name):
     """Заменяет ё на е и очищает имя от лишних пробелов"""
@@ -49,36 +50,35 @@ def remove_duplicates(employees):
             unique_employees.append(emp)
     return unique_employees
 
-def create_excel_file(employees, filename='employees_unique.xlsx'):
-    """Создает Excel-файл с сотрудниками"""
-    df = pd.DataFrame({
-        '№': range(1, len(employees) + 1),
-        'ФИО сотрудника': employees
-    })
-    with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name='Сотрудники', index=False)
-        worksheet = writer.sheets['Сотрудники']
-        worksheet.column_dimensions['A'].width = 5
-        worksheet.column_dimensions['B'].width = 50
-    return filename
-
-def update_employees_from_url(url='https://bgu-chita.ru/sveden/employees', filename='employees_unique.xlsx'):
-    """Обновляет список сотрудников с сайта"""
+def fetch_employees_from_url(url='https://bgu-chita.ru/sveden/employees'):
+    """Получает список сотрудников с сайта"""
     try:
         response = requests.get(url, headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }, timeout=30)
         response.encoding = 'utf-8'
         html_content = response.text
-        
+
         all_employees = extract_employees_from_html(html_content)
         unique_employees = remove_duplicates(all_employees)
-        create_excel_file(unique_employees, filename)
-        
-        print(f"✓ Обновлено {len(unique_employees)} сотрудников")
+        logger.info(f"Получено {len(unique_employees)} преподавателей")
         return unique_employees
     except Exception as e:
-        print(f"⚠ Ошибка обновления: {e}")
+        logger.error(f"Ошибка получения преподавателей: {e}")
+        return []
+
+
+def sync_employees_to_db(db=None, url='https://bgu-chita.ru/sveden/employees'):
+    """Синхронизирует список преподавателей из веба в базу данных"""
+    try:
+        if db is None:
+            db = Database()
+        employees = fetch_employees_from_url(url)
+        if employees:
+            db.update_employees(employees, source_url=url)
+        return employees
+    except Exception as e:
+        logger.error(f"Ошибка синхронизации преподавателей в БД: {e}")
         return []
 
 def extract_keywords_from_text(text, max_tags=10):
@@ -134,39 +134,31 @@ def extract_keywords_from_text(text, max_tags=10):
 class EmployeeTagger:
     """Умный поиск преподавателей по ФИО в тексте + NLP теги"""
     
-    def __init__(self, excel_path='employees_unique.xlsx'):
+    def __init__(self, db=None, refresh_on_init=True):
         self.employees = []
-        
-        if not os.path.exists(excel_path):
-            print("Файл employees_unique.xlsx не найден. Создаем...")
-            try:
-                update_employees_from_url(filename=excel_path)
-            except Exception as e:
-                print(f"Не удалось создать файл: {e}")
-                print("Запустите pars.py вручную для создания файла")
-        
-        self.load_data(excel_path)
-    
-    def load_data(self, excel_path):
-        """Загрузка и парсинг списка преподавателей"""
-        try:
-            if not os.path.exists(excel_path):
-                print(f"Файл {excel_path} не найден")
-                return
+        self.db = db or Database()
 
-            df = pd.read_excel(excel_path)
-            full_names = df['ФИО сотрудника'].tolist()
-            
+        if refresh_on_init:
+            try:
+                sync_employees_to_db(self.db)
+            except Exception as e:
+                logger.error(f"Не удалось обновить базу преподавателей: {e}")
+
+        self.load_data_from_db()
+    
+    def load_data_from_db(self):
+        """Загружает преподавателей из базы данных"""
+        try:
+            self.employees = []
+            full_names = self.db.get_all_employees()
             for full_name in full_names:
-                if pd.isna(full_name) or len(full_name) < 5:
+                if not full_name or len(full_name.strip()) < 5:
                     continue
-                
                 parts = full_name.strip().split()
                 if len(parts) >= 1:
                     surname = parts[0]
                     name = parts[1] if len(parts) > 1 else ""
                     patronymic = parts[2] if len(parts) > 2 else ""
-                    
                     self.employees.append({
                         'original': full_name,
                         'surname': surname,
@@ -174,7 +166,7 @@ class EmployeeTagger:
                         'patronymic': patronymic
                     })
         except Exception as e:
-            print(f"Ошибка загрузки преподавателей: {e}")
+            logger.error(f"Ошибка загрузки преподавателей из БД: {e}")
 
     def get_all_tags(self, text, include_keywords=True):
         """Получает все теги: преподаватели + ключевые слова"""
@@ -231,12 +223,11 @@ class EmployeeTagger:
         return list(tags)
 
     def _check_word_boundary(self, text, phrase):
-        """Проверяет наличие фразы в тексте"""
-        words = phrase.split()
-        if len(words) > 1:
-            return phrase in text
+        """Проверяет наличие фразы в тексте с учётом границ слов и регистра"""
+        if not phrase or not text:
+            return False
         
-        if len(phrase) > 4:
-            return phrase in text
-            
-        return False
+        # \b гарантирует точное совпадение целого слова/фразы
+        # re.escape защищает от спецсимволов в ФИО
+        pattern = rf'\b{re.escape(phrase)}\b'
+        return bool(re.search(pattern, text, re.IGNORECASE))

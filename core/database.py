@@ -1,11 +1,11 @@
 import sqlite3
 import threading
 from config.settings import DB_NAME
-
+from core.logging_config import logger
 class Database:
     """Потокобезопасная БД с нормальной структурой (посты + вложения)"""
     
-    CURRENT_SCHEMA_VERSION = 3
+    CURRENT_SCHEMA_VERSION = 4
     _schema_initialized = False
     _init_lock = threading.Lock()
 
@@ -32,19 +32,45 @@ class Database:
             cursor = conn.cursor()
             self._create_tables(cursor)
             
-            # Миграция для тех, у кого старая БД
             cursor.execute("CREATE TABLE IF NOT EXISTS schema_version (id INTEGER PRIMARY KEY, version INTEGER DEFAULT 1)")
             row = cursor.execute("SELECT version FROM schema_version WHERE id=1").fetchone()
             current_version = row[0] if row else 1
 
+            # === Миграция v1/v2 -> v3: разделение таблицы постов и медиа ===
             if current_version < 3:
-                print("[DB] Миграция v1/v2 -> v3 (разделение постов и медиа)...")
+                logger.info("[DB] Миграция v1/v2 -> v3 (разделение таблиц)...")
+                cursor.execute("CREATE TABLE IF NOT EXISTS posts_backup AS SELECT * FROM posts")
                 cursor.execute("DROP TABLE IF EXISTS posts")
                 cursor.execute("DROP TABLE IF EXISTS attachments")
                 self._create_tables(cursor)
+                
+                try:
+                    cursor.execute("""
+                        INSERT INTO posts (original_post_id, date, text, tags, likes, comments, shares, views)
+                        SELECT original_post_id, date, text, tags, likes, comments, shares, views 
+                        FROM posts_backup
+                    """)
+                    logger.info("[DB] Данные постов успешно перенесены в новую схему.")
+                except Exception as e:
+                    logger.warning("[DB] Перенос данных не удался (возможно, старая схема пустая): %s", e)
+                    
+                cursor.execute("DROP TABLE IF EXISTS posts_backup")
                 cursor.execute("INSERT OR REPLACE INTO schema_version (id, version) VALUES (1, 3)")
                 conn.commit()
-                print("[DB] Миграция завершена.")
+                current_version = 3  # Обновляем локальную переменную для следующего check
+
+            # === Миграция v3 -> v4: добавление колонки post_count в employees ===
+            if current_version < 4:
+                logger.info("[DB] Миграция v3 -> v4 (добавление post_count)...")
+                try:
+                    cursor.execute("ALTER TABLE employees ADD COLUMN post_count INTEGER DEFAULT 0")
+                except Exception as e:
+                    # Колонка уже может существовать, если миграция прерывалась
+                    if "duplicate column name" not in str(e).lower():
+                        logger.error("[DB] Ошибка миграции v4: %s", e)
+                        
+                cursor.execute("INSERT OR REPLACE INTO schema_version (id, version) VALUES (1, 4)")
+                conn.commit()
 
             Database._schema_initialized = True
 
@@ -64,6 +90,19 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+            # === Инициализация FTS5 для быстрого поиска ===
+        cursor.execute("CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(text, tags, tokenize='unicode61')")
+        
+        # Синхронизируем существующие данные (одноразово при обновлении)
+        cursor.execute("INSERT OR IGNORE INTO posts_fts (rowid, text, tags) SELECT id, text, tags FROM posts")
+        
+        # Триггеры для автоматической синхронизации
+        cursor.execute("""CREATE TRIGGER IF NOT EXISTS posts_fts_insert AFTER INSERT ON posts
+            BEGIN INSERT INTO posts_fts (rowid, text, tags) VALUES (new.id, new.text, new.tags); END;""")
+        cursor.execute("""CREATE TRIGGER IF NOT EXISTS posts_fts_update AFTER UPDATE ON posts
+            BEGIN UPDATE posts_fts SET text=new.text, tags=new.tags WHERE rowid=old.id; END;""")
+        cursor.execute("""CREATE TRIGGER IF NOT EXISTS posts_fts_delete AFTER DELETE ON posts
+            BEGIN DELETE FROM posts_fts WHERE rowid=old.id; END;""")
         
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS attachments (
@@ -99,6 +138,15 @@ class Database:
             shares INTEGER DEFAULT 0, views INTEGER DEFAULT 0, last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_media_stats_unique ON media_statistics(media_key, media_type)")
 
+        cursor.execute("""CREATE TABLE IF NOT EXISTS employees (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            full_name TEXT UNIQUE,
+            normalized_name TEXT,
+            source_url TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_employees_normalized ON employees(normalized_name)")
+
     # === ПУБЛИЧНЫЕ МЕТОДЫ ===
 
     def post_exists(self, original_post_id):
@@ -118,7 +166,7 @@ class Database:
             self._get_conn().commit()
             return True
         except Exception as e:
-            print(f"DB Save Post Error: {e}")
+            logger.error(f"DB Save Post Error: {e}")
             return False
 
     def save_media(self, original_post_id, media_type, media_key, media_path, file_size):
@@ -130,17 +178,125 @@ class Database:
             self._get_conn().commit()
             return True
         except Exception as e:
-            print(f"DB Save Media Error: {e}")
+            logger.error(f"DB Save Media Error: {e}")
             return False
+
+    def get_all_employees(self):
+        try:
+            rows = self._get_cursor().execute("SELECT full_name FROM employees ORDER BY full_name ASC").fetchall()
+            return [row[0] for row in rows]
+        except Exception:
+            return []
+
+    def clear_employees(self):
+        try:
+            self._get_cursor().execute("DELETE FROM employees")
+            self._get_conn().commit()
+            return True
+        except Exception:
+            return False
+
+    def save_employee(self, full_name, normalized_name=None, source_url=None):
+        try:
+            if normalized_name is None:
+                normalized_name = full_name.lower().replace('ё', 'е').strip()
+            self._get_cursor().execute("""
+                INSERT OR IGNORE INTO employees (full_name, normalized_name, source_url)
+                VALUES (?, ?, ?)
+            """, (full_name, normalized_name, source_url))
+            self._get_conn().commit()
+            return True
+        except Exception:
+            return False
+
+    def update_employees(self, employee_names, source_url=None):
+        try:
+            self.clear_employees()
+            normalized_rows = []
+            for name in employee_names:
+                if not name or len(name.strip()) < 3:
+                    continue
+                normalized = name.lower().replace('ё', 'е').strip()
+                normalized_rows.append((name.strip(), normalized, source_url))
+            self._get_cursor().executemany("""
+                INSERT OR IGNORE INTO employees (full_name, normalized_name, source_url)
+                VALUES (?, ?, ?)
+            """, normalized_rows)
+            self._get_conn().commit()
+            return True
+        except Exception as e:
+            logger.error(f"DB Update Employees Error: {e}")
+            return False
+
+    def update_employee_post_count(self, employee_id, post_count):
+        try:
+            self._get_cursor().execute("""
+                UPDATE employees SET post_count = ? WHERE id = ?
+            """, (post_count, employee_id))
+            self._get_conn().commit()
+            return True
+        except Exception as e:
+            logger.error(f"DB Update Employee Post Count Error: {e}")
+            return False
+        
+    def get_aggregated_stats(self, start_date: str, end_date: str) -> dict:
+        """Возвращает суммарную статистику за период ОДНИМ SQL-запросом"""
+        try:
+            cursor = self._get_cursor()
+            row = cursor.execute("""
+                SELECT 
+                    COALESCE(SUM(likes), 0), 
+                    COALESCE(SUM(comments), 0), 
+                    COALESCE(SUM(shares), 0), 
+                    COALESCE(SUM(views), 0),
+                    COUNT(*)
+                FROM posts 
+                WHERE date BETWEEN ? AND ?
+            """, (start_date, end_date)).fetchone()
+            return {
+                'total_likes': row[0], 'total_comments': row[1],
+                'total_shares': row[2], 'total_views': row[3],
+                'total_posts': row[4]
+            }
+        except Exception as e:
+            logger.error(f"[DB] Aggregation error: {e}")
+            return {'total_likes': 0, 'total_comments': 0, 'total_shares': 0, 'total_views': 0, 'total_posts': 0}
+
+    def get_employees_with_post_count(self):
+        try:
+            rows = self._get_cursor().execute("""
+                SELECT id, full_name, post_count FROM employees ORDER BY full_name ASC
+            """).fetchall()
+            return [{'id': row[0], 'name': row[1], 'post_count': row[2]} for row in rows]
+        except Exception:
+            logger.error("[DB] Error fetching employees with post count")
+            return []
 
     def search(self, query):
         try:
-            return self._get_cursor().execute("""
-                SELECT p.original_post_id, MAX(p.id), MAX(p.date), MAX(p.text), MAX(p.tags),
-                       GROUP_CONCAT(a.media_type), GROUP_CONCAT(a.media_path), GROUP_CONCAT(a.file_size)
-                FROM posts p LEFT JOIN attachments a ON p.original_post_id = a.original_post_id
-                WHERE p.text LIKE ? OR p.tags LIKE ? GROUP BY p.original_post_id ORDER BY p.date DESC
-            """, (f'%{query}%', f'%{query}%')).fetchall()
+            # FTS5 поиск с подсветкой релевантности
+            cursor = self._get_cursor()
+            results = cursor.execute("""
+                SELECT p.original_post_id, p.id, p.date, p.text, p.tags,
+                    GROUP_CONCAT(a.media_type), GROUP_CONCAT(a.media_path), GROUP_CONCAT(a.file_size)
+                FROM posts p
+                JOIN posts_fts fts ON p.id = fts.rowid
+                LEFT JOIN attachments a ON p.original_post_id = a.original_post_id
+                WHERE posts_fts MATCH ?
+                GROUP BY p.original_post_id
+                ORDER BY p.date DESC
+            """, (query,)).fetchall()
+            
+            if not results:
+                # Fallback на LIKE, если FTS не нашёл точных совпадений
+                return cursor.execute("""
+                    SELECT p.original_post_id, MAX(p.id), MAX(p.date), MAX(p.text), MAX(p.tags),
+                        GROUP_CONCAT(a.media_type), GROUP_CONCAT(a.media_path), GROUP_CONCAT(a.file_size)
+                    FROM posts p LEFT JOIN attachments a ON p.original_post_id = a.original_post_id
+                    WHERE p.text LIKE ? OR p.tags LIKE ?
+                    GROUP BY p.original_post_id ORDER BY p.date DESC
+                """, (f'%{query}%', f'%{query}%')).fetchall()
+            return results
         except Exception: 
             return []
 
@@ -155,13 +311,13 @@ class Database:
             """, (limit,)).fetchall()
             
             # ОТЛАДКА: проверяем что возвращаем
-            print(f"[DB] get_all_posts вернул {len(result)} постов")
+            logger.debug(f"[DB] get_all_posts вернул {len(result)} постов")
             for i, row in enumerate(result[:3]):
-                print(f"  Row {i}: post_id={row[0]}, media_types={row[5]}, media_paths={row[6]}")
+                logger.debug(f"  Row {i}: post_id={row[0]}, media_types={row[5]}, media_paths={row[6]}")
             
             return result
         except Exception as e:
-            print(f"[DB] get_all_posts Error: {e}")
+            logger.error(f"[DB] get_all_posts Error: {e}")
             import traceback
             traceback.print_exc()
             return []

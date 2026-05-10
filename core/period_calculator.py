@@ -11,11 +11,9 @@ class PeriodCalculator:
     
     PERIOD_TYPES = {
         'hour': 'Час',
-        'half_day': 'Пол дня',
         'day': 'День',
         'week': 'Неделя',
         'month': 'Месяц',
-        'half_year': 'Пол года',
         'year': 'Год',
         'all_time': 'Все время'
     }
@@ -48,17 +46,6 @@ class PeriodCalculator:
             start = reference_date.replace(minute=0, second=0, microsecond=0)
             end = start + timedelta(hours=1)
         
-        elif period_type == 'half_day':
-            # Первая половина: 00:00-11:59, вторая: 12:00-23:59
-            hour = reference_date.hour
-            start = reference_date.replace(second=0, microsecond=0)
-            if hour < 12:
-                start = start.replace(hour=0, minute=0)
-                end = start.replace(hour=12)
-            else:
-                start = start.replace(hour=12, minute=0)
-                end = (start + timedelta(days=1)).replace(hour=0, minute=0)
-        
         elif period_type == 'day':
             start = reference_date.replace(hour=0, minute=0, second=0, microsecond=0)
             end = start + timedelta(days=1)
@@ -75,16 +62,6 @@ class PeriodCalculator:
                 end = start.replace(year=start.year + 1, month=1)
             else:
                 end = start.replace(month=start.month + 1)
-        
-        elif period_type == 'half_year':
-            # Первая половина: янв-июнь, вторая: июль-декабрь
-            start = reference_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            if start.month <= 6:
-                start = start.replace(month=1, day=1)
-                end = start.replace(month=7)
-            else:
-                start = start.replace(month=7, day=1)
-                end = start.replace(year=start.year + 1, month=1, day=1)
         
         elif period_type == 'year':
             start = reference_date.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -125,14 +102,6 @@ class PeriodCalculator:
             start = end - timedelta(hours=1)
             periods['hour'].append((start, end))
         
-        # Половины дней последних 30 дней
-        periods['half_day'] = []
-        for i in range(60):
-            current = now - timedelta(days=i // 2)
-            start_half, end_half = PeriodCalculator.get_period_range('half_day', current)
-            if (start_half, end_half) not in periods['half_day']:
-                periods['half_day'].append((start_half, end_half))
-        
         # Дни за последний год
         periods['day'] = []
         for i in range(365):
@@ -155,18 +124,6 @@ class PeriodCalculator:
                 dt = datetime(year, month, 1)
                 start, end = PeriodCalculator.get_period_range('month', dt)
                 periods['month'].append((start, end))
-        
-        # Половины лет за последние 10 лет
-        periods['half_year'] = []
-        for year in range(end_year, end_year - 10, -1):
-            # Вторая половина
-            dt = datetime(year, 9, 1)
-            start, end = PeriodCalculator.get_period_range('half_year', dt)
-            periods['half_year'].append((start, end))
-            # Первая половина
-            dt = datetime(year, 3, 1)
-            start, end = PeriodCalculator.get_period_range('half_year', dt)
-            periods['half_year'].append((start, end))
         
         # Годы
         periods['year'] = []

@@ -1,6 +1,7 @@
 import pymorphy3
 from collections import Counter
 from config.settings import MAX_TAGS, MIN_WORD_LENGTH
+from core.logging_config import logger
 
 STOP_WORDS = {
     'и', 'в', 'во', 'не', 'что', 'он', 'на', 'я', 'с', 'со', 'как', 'а', 'то',
@@ -22,11 +23,11 @@ STOP_WORDS = {
     'более', 'всегда', 'конечно', 'всю', 'между', 'это', 'зато'
 }
 
-
 class NLPProcessor:
     """Класс для обработки текста и генерации тегов"""
     
     def __init__(self):
+        # Морфологический анализатор инициализируется один раз на инстанс
         self.morph = pymorphy3.MorphAnalyzer()
 
     def generate_tags(self, text, top_n=MAX_TAGS):
@@ -39,16 +40,20 @@ class NLPProcessor:
         clean_words = []
         
         for word in words:
+            # Оставляем только буквы, цифры и 'ё'
             word = ''.join(c for c in word if c.isalnum() or c == 'ё')
+            
             if len(word) < MIN_WORD_LENGTH or word in STOP_WORDS:
                 continue
             if word.isdigit():
                 continue
+                
             try:
                 normal_form = self.morph.parse(word)[0].normal_form
                 if normal_form not in STOP_WORDS and len(normal_form) >= MIN_WORD_LENGTH:
                     clean_words.append(normal_form)
-            except Exception:
+            except Exception as e:
+                logger.debug("NLP parse error for word '%s': %s", word, e)
                 continue
         
         counter = Counter(clean_words)

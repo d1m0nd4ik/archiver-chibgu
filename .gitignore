@@ -5,14 +5,13 @@
 
 # База данных и архивы
 *.db
-vk_archive.db
-vk_archive_data/
+Archive.db
+Exports_data/
 exports/
 ffmpeg/
 # Куки и списки сотрудников
 cookies*.txt
 coockie*.txt
-employees*.xlsx
 
 # Python / IDE / Venv
 __pycache__/
@@ -29,3 +28,5 @@ build/
 # Система
 .DS_Store
 Thumbs.db
+Archive.db-shm
+Archive.db-wal
