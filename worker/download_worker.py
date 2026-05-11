@@ -32,7 +32,17 @@ class DownloadWorker(QThread):
         try:
             self.signals.progress.emit("🔄 Инициализация...")
             
-            vk = VKDownloader(self.token, self.group_identifier)
+            if not self.token or not str(self.token).strip():
+                self.signals.error.emit("❌ Ошибка: Токен VK API не указан!\n\nПолучите токен на https://vkhost.github.io/ и введите его в Настройки.")
+                return
+            
+            try:
+                vk = VKDownloader(self.token, self.group_identifier)
+            except Exception as init_err:
+                logger.error("VK Downloader initialization error: %s", init_err)
+                self.signals.error.emit(f"❌ {str(init_err)}")
+                return
+            
             tagger = EmployeeTagger()
             nlp = NLPProcessor()
             

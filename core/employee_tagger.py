@@ -1,233 +1,165 @@
 import re
-import os
-from bs4 import BeautifulSoup
 import requests
+from bs4 import BeautifulSoup
+import pymorphy3
 from core.logging_config import logger
 from core.database import Database
+from core.name_normalizer import normalize_and_reorder
 
-def normalize_name(name):
-    """Заменяет ё на е и очищает имя от лишних пробелов"""
-    name = name.replace('ё', 'е').replace('Ё', 'Е')
-    name = ' '.join(name.split())
-    return name.strip()
+try:
+    from natasha import Segmenter, MorphVocab, NewsEmbedding, NewsMorphTagger, NewsNERTagger, Doc
+    NATASHA_AVAILABLE = True
+except ImportError:
+    NATASHA_AVAILABLE = False
 
-def extract_employees_from_html(html_content):
-    """Извлекает имена сотрудников из HTML-контента"""
+def normalize_name(name: str) -> str:
+    return name.replace('ё', 'е').replace('Ё', 'Е').strip()
+
+def extract_employees_from_html(html_content: str) -> list:
     soup = BeautifulSoup(html_content, 'html.parser')
     employees = []
-    
     for tag in soup.find_all('td', itemprop='fio'):
         name = tag.get_text(strip=True)
-        if name and len(name) > 3:
-            employees.append(normalize_name(name))
-
-    tables = soup.find_all('table')
-    for table in tables:
-        headers = table.find_all('th')
-        header_text = ' '.join([h.get_text().lower() for h in headers])
-        
-        if 'ф.и.о.' in header_text or 'ф.и.о преподавателя' in header_text:
-            rows = table.find_all('tr')[1:]
-            for row in rows:
+        if name and len(name) > 3: employees.append(normalize_name(name))
+    for table in soup.find_all('table'):
+        headers = [h.get_text().lower() for h in table.find_all('th')]
+        if any('ф.и.о.' in h for h in headers):
+            for row in table.find_all('tr')[1:]:
                 cells = row.find_all('td')
                 if len(cells) >= 2:
-                    name_cell = cells[1]
-                    name = name_cell.get_text(strip=True)
-                    name = re.sub(r'<[^>]+>', '', name)
+                    name = re.sub(r'<[^>]+>', '', cells[1].get_text(strip=True))
                     name = normalize_name(name)
-                    if name and len(name) > 3 and '<' not in name:
-                        employees.append(name)
-
+                    if name and len(name) > 3: employees.append(name)
     return employees
 
-def remove_duplicates(employees):
-    """Удаляет дубликаты, сохраняя порядок"""
+def remove_duplicates(employees: list) -> list:
     seen = set()
-    unique_employees = []
-    for emp in employees:
-        if emp not in seen:
-            seen.add(emp)
-            unique_employees.append(emp)
-    return unique_employees
+    return [e for e in employees if not (e in seen or seen.add(e))]
 
-def fetch_employees_from_url(url='https://bgu-chita.ru/sveden/employees'):
-    """Получает список сотрудников с сайта"""
+def fetch_employees_from_url(url: str = 'https://bgu-chita.ru/sveden/employees') -> list:
     try:
-        response = requests.get(url, headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }, timeout=30)
-        response.encoding = 'utf-8'
-        html_content = response.text
-
-        all_employees = extract_employees_from_html(html_content)
-        unique_employees = remove_duplicates(all_employees)
-        logger.info(f"Получено {len(unique_employees)} преподавателей")
-        return unique_employees
+        resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=30)
+        resp.encoding = 'utf-8'
+        return remove_duplicates(extract_employees_from_html(resp.text))
     except Exception as e:
-        logger.error(f"Ошибка получения преподавателей: {e}")
+        logger.error(f"Fetch employees error: {e}")
         return []
 
-
-def sync_employees_to_db(db=None, url='https://bgu-chita.ru/sveden/employees'):
-    """Синхронизирует список преподавателей из веба в базу данных"""
+def sync_employees_to_db(db: Database = None, url: str = 'https://bgu-chita.ru/sveden/employees') -> list:
     try:
-        if db is None:
-            db = Database()
+        db = db or Database()
         employees = fetch_employees_from_url(url)
-        if employees:
-            db.update_employees(employees, source_url=url)
+        if employees: db.update_employees(employees, source_url=url)
         return employees
     except Exception as e:
-        logger.error(f"Ошибка синхронизации преподавателей в БД: {e}")
+        logger.error(f"Sync error: {e}")
         return []
-
-def extract_keywords_from_text(text, max_tags=10):
-    """Извлекает ключевые слова из текста (простая эвристика)"""
-    if not text:
-        return []
-    
-    # Стоп-слова (русские)
-    stop_words = {
-        'и', 'в', 'на', 'с', 'по', 'за', 'под', 'над', 'для', 'от', 'до', 'из',
-        'а', 'но', 'или', 'же', 'бы', 'ли', 'то', 'если', 'как', 'что', 'кто',
-        'этот', 'тот', 'такой', 'весь', 'сам', 'самый',
-        'быть', 'был', 'была', 'было', 'были', 'есть', 'будет', 'будут',
-        'я', 'ты', 'он', 'она', 'оно', 'мы', 'вы', 'они', 'меня', 'тебя', 'его', 'её',
-        'мой', 'твой', 'свой', 'наш', 'ваш',
-        'не', 'ни', 'да', 'нет', 'ну', 'же', 'ли', 'бы',
-        'при', 'через', 'после', 'перед', 'между', 'без', 'кроме', 'кроме',
-        'уже', 'только', 'очень', 'совсем', 'еще', 'ещё', 'более', 'менее',
-        'так', 'также', 'потом', 'затем', 'после', 'перед',
-        'год', 'года', 'лет', 'месяц', 'дня', 'час', 'раз', 'место', 'дело', 'время',
-        'который', 'какой', 'чей', 'сколько', 'столько',
-        'себя', 'себе', 'собой', 'собою',
-        'здесь', 'там', 'туда', 'сюда', 'оттуда', 'отсюда',
-        'когда', 'где', 'куда', 'откуда', 'почему', 'зачем',
-        'хороший', 'новый', 'старый', 'большой', 'маленький', 'первый', 'последний'
-    }
-    
-    # Очищаем текст
-    text = text.lower()
-    text = re.sub(r'[^\w\sа-яё]', ' ', text)
-    words = text.split()
-    
-    # Фильтруем слова
-    keywords = []
-    for word in words:
-        word = word.strip()
-        if (len(word) >= 4 and 
-            word not in stop_words and 
-            not word.isdigit() and
-            len(keywords) < max_tags):
-            keywords.append(word)
-    
-    # Убираем дубликаты, сохраняя порядок
-    seen = set()
-    unique_keywords = []
-    for kw in keywords:
-        if kw not in seen:
-            seen.add(kw)
-            unique_keywords.append(kw)
-    
-    return unique_keywords[:max_tags]
 
 class EmployeeTagger:
-    """Умный поиск преподавателей по ФИО в тексте + NLP теги"""
-    
-    def __init__(self, db=None, refresh_on_init=True):
-        self.employees = []
+    def __init__(self, db: Database = None, refresh_on_init: bool = True):
         self.db = db or Database()
-
-        if refresh_on_init:
+        self.morph = pymorphy3.MorphAnalyzer()
+        self.natasha_ready = False
+        if NATASHA_AVAILABLE:
             try:
-                sync_employees_to_db(self.db)
-            except Exception as e:
-                logger.error(f"Не удалось обновить базу преподавателей: {e}")
+                emb = NewsEmbedding()
+                self.segmenter = Segmenter()
+                self.morph_tagger = NewsMorphTagger(emb)
+                self.ner_tagger = NewsNERTagger(emb)
+                self.natasha_ready = True
+            except Exception: pass
 
-        self.load_data_from_db()
-    
-    def load_data_from_db(self):
-        """Загружает преподавателей из базы данных"""
-        try:
-            self.employees = []
-            full_names = self.db.get_all_employees()
-            for full_name in full_names:
-                if not full_name or len(full_name.strip()) < 5:
-                    continue
-                parts = full_name.strip().split()
-                if len(parts) >= 1:
-                    surname = parts[0]
-                    name = parts[1] if len(parts) > 1 else ""
-                    patronymic = parts[2] if len(parts) > 2 else ""
-                    self.employees.append({
-                        'original': full_name,
-                        'surname': surname,
-                        'name': name,
-                        'patronymic': patronymic
-                    })
-        except Exception as e:
-            logger.error(f"Ошибка загрузки преподавателей из БД: {e}")
+        self.profiles = []
+        self.name_index = {}
+        if refresh_on_init:
+            try: sync_employees_to_db(self.db)
+            except Exception: pass
+        self._load_db()
 
-    def get_all_tags(self, text, include_keywords=True):
-        """Получает все теги: преподаватели + ключевые слова"""
-        if not text:
-            return []
+    def _load_db(self):
+        self.profiles = []
+        self.name_index.clear()
+        for raw in self.db.get_all_employees():
+            if not raw or len(raw.strip()) < 3: continue
+            clean = normalize_and_reorder(raw)
+            self.profiles.append(self._prep(clean))
+            key = clean.lower().replace('ё', 'е')
+            self.name_index[key] = clean
+            parts = key.split()
+            if len(parts) >= 3:
+                self.name_index[parts[0]] = clean
+                self.name_index[f"{parts[0]} {parts[1]}"] = clean
+
+    def _prep(self, name: str) -> dict:
+        parts = name.strip().split()
+        if len(parts) < 2: return {}
+        s, n = parts[0], parts[1]
+        p = parts[2] if len(parts) > 2 else ""
         
-        tags = set()
+        # Исправленный вызов pymorphy3
+        def get_forms(w):
+            forms = {w.lower(), w.lower().replace('ё','е')}
+            try:
+                parsed = self.morph.parse(w)
+                if parsed:
+                    for lex in self.morph.get_lexeme(parsed[0]):
+                        forms.add(lex.lower())
+                        forms.add(lex.lower().replace('ё','е'))
+            except: pass
+            return forms
+
+        s_forms = get_forms(s)
+        n_forms = get_forms(n)
+        p_forms = get_forms(p) if p else set()
         
-        # 1. Теги преподавателей
-        employee_tags = self.get_hashtags(text)
-        tags.update(employee_tags)
-        
-        # 2. Ключевые слова из текста
+        fi, pi = (n[0].lower(), p[0].lower()) if p else (n[0].lower(), '')
+        return {'full': name, 'surname': s, 'name': n, 'patronymic': p,
+                's_forms': s_forms, 'n_forms': n_forms, 'p_forms': p_forms,
+                'initials': [f"{fi}.", f"{fi}.{pi}.", fi, f"{fi}.{pi}"]}
+
+    def _check_context(self, text: str, emp: dict) -> bool:
+        t = text.lower().replace('ё', 'е')
+        for sf in emp['s_forms']:
+            for m in re.finditer(rf'\b{re.escape(sf)}\b', t):
+                ctx = text[max(0, m.start()-50):min(len(text), m.end()+50)]
+                ctx_c = ctx.lower().replace('ё', 'е').replace(sf, ' ')
+                if any(x in ctx_c for x in emp['n_forms']) or any(x in ctx_c for x in emp['initials']): return True
+                if emp['p_forms'] and any(x in ctx_c for x in emp['p_forms']): return True
+                others = re.findall(r'\b([А-ЯЁ][а-яё]+)\b', ctx)
+                for o in others:
+                    o_n = o.lower().replace('ё', 'е')
+                    if len(o_n) > 2 and o_n not in emp['n_forms'] and o_n not in emp['p_forms'] and o_n not in emp['s_forms']:
+                        return False
+                return True
+        return False
+
+    def find_employees_in_text(self, text: str) -> set:
+        if not text: return set()
+        found = set()
+        if self.natasha_ready:
+            try:
+                doc = Doc(text)
+                doc.segment(self.segmenter)
+                doc.tag_morph(self.morph_tagger)
+                doc.tag_ner(self.ner_tagger)
+                for sp in doc.spans:
+                    if sp.type == 'PER':
+                        e = sp.text.lower().replace('ё', 'е')
+                        if e in self.name_index: found.add(self.name_index[e])
+            except Exception: pass
+        if not found:
+            for emp in self.profiles:
+                if self._check_context(text, emp): found.add(emp['full'])
+        return found
+
+    def get_hashtags(self, text: str) -> list:
+        return sorted([f"#{n.lower().replace('ё','е').replace(' ','_')}" for n in self.find_employees_in_text(text)])
+
+    def get_all_tags(self, text: str, include_keywords: bool = True) -> list:
+        if not text: return []
+        tags = set(self.get_hashtags(text))
         if include_keywords:
-            keywords = extract_keywords_from_text(text, max_tags=15)
-            for kw in keywords:
-                tags.add(f"#{kw}")
-        
+            words = re.sub(r'[^\w\sа-яё]', ' ', text.lower()).split()
+            stop = {'и','в','на','с','по','не','что','он','я','так','его','но','да','ты','к','у','же','вы','за','бы','только','ее','мне','было','от','меня','еще','нет','из','ему','когда','даже','ну','ли','если','уже','или','ни','быть','был','до','вас','уж','вам','ведь','там','потом','себя','ничего','ей','может','они','тут','где','есть','надо','ней','для','мы','тебя','их','чем','была','сам','чтоб','без','будто','человек','чего','раз','тоже','себе','под','жизнь','будет','тогда','кто','этот','того','потому','этого','какой','совсем','ним','здесь','этом','один','почти','мой','тем','чтобы','нее','сейчас','были','куда','зачем','всех','никогда','можно','при','наконец','два','об','другой','хоть','после','над','больше','тот','через','эти','нас','про','всего','них','какая','много','разве','три','эту','моя','впрочем','хорошо','свою','этой','перед','иногда','лучше','чуть','том','нельзя','такой','им','более','всегда','конечно','всю','между','это','зато'}
+            tags.update(f"#{w}" for w in words if len(w)>=4 and w not in stop and not w.isdigit())
         return sorted(list(tags))
-
-    def get_hashtags(self, text):
-        """Ищет совпадения в тексте и возвращает хэштеги преподавателей"""
-        if not text:
-            return []
-
-        search_text = text.lower().replace('ё', 'е')
-        tags = set()
-        
-        for emp in self.employees:
-            surname = emp['surname'].lower()
-            name = emp['name'].lower()
-            patronymic = emp['patronymic'].lower()
-            
-            # 1. Полное ФИО
-            if patronymic:
-                full_variant = f"{surname} {name} {patronymic}"
-                if self._check_word_boundary(search_text, full_variant):
-                    tags.add(f"#{surname}_{name}_{patronymic}")
-            
-            # 2. Имя Фамилия
-            if name:
-                variant_2 = f"{surname} {name}"
-                if self._check_word_boundary(search_text, variant_2):
-                    tags.add(f"#{surname}_{name}")
-                
-                variant_3 = f"{name} {surname}"
-                if self._check_word_boundary(search_text, variant_3):
-                    tags.add(f"#{surname}_{name}")
-
-            # 3. Просто Фамилия
-            if self._check_word_boundary(search_text, surname):
-                tags.add(f"#{surname}")
-
-        return list(tags)
-
-    def _check_word_boundary(self, text, phrase):
-        """Проверяет наличие фразы в тексте с учётом границ слов и регистра"""
-        if not phrase or not text:
-            return False
-        
-        # \b гарантирует точное совпадение целого слова/фразы
-        # re.escape защищает от спецсимволов в ФИО
-        pattern = rf'\b{re.escape(phrase)}\b'
-        return bool(re.search(pattern, text, re.IGNORECASE))

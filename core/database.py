@@ -2,6 +2,7 @@ import sqlite3
 import threading
 from config.settings import DB_NAME
 from core.logging_config import logger
+
 class Database:
     """Потокобезопасная БД с нормальной структурой (посты + вложения)"""
     
@@ -12,6 +13,8 @@ class Database:
     def __init__(self, db_name=DB_NAME):
         self.db_name = db_name
         self._local = threading.local()
+        
+        # Инициализируем схему БД
         self._init_schema()
 
     def _get_conn(self):
@@ -341,9 +344,10 @@ class Database:
         except: 
             pass
 
-    def __del__(self): 
-        self.close()
+    # === СТАТИСТИКА ===
+    
 
+    
     # === СТАТИСТИКА ===
     def update_post_stats(self, original_post_id, likes, comments, shares, views):
         try:

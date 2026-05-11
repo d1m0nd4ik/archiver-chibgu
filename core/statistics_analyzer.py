@@ -1,293 +1,184 @@
 """
-Модуль для анализа статистики постов, видео, фото и преподавателей
+Модуль для анализа статистики постов и преподавателей.
+ИСПРАВЛЕНО: pymorphy3 API (get_lexeme вместо get_lexemes).
 """
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple
-import json
 import re
+from datetime import datetime
+from typing import Dict, List, Set
+import pymorphy3
 from core.logging_config import logger
 from core.database import Database
 from core.period_calculator import PeriodCalculator
-from core.employee_tagger import remove_duplicates, normalize_name, sync_employees_to_db
 
 class StatisticsAnalyzer:
-    """Класс для анализа статистики контента"""
     def __init__(self):
         self.db = Database()
         self.period_calc = PeriodCalculator()
-        self._refresh_employee_database()
-        # Запускаем обновление счётчиков в фоне или лениво, чтобы не блокировать инициализацию UI
-        self._update_employee_post_counts()
+        self.morph = pymorphy3.MorphAnalyzer()
 
-    def _refresh_employee_database(self):
+    def _get_forms(self, word: str) -> Set[str]:
+        """Генерирует все формы слова через pymorphy3"""
+        if not word: return set()
+        # Базовые формы
+        forms = {word.lower(), word.lower().replace('ё','е')}
         try:
-            sync_employees_to_db(self.db)
-        except Exception as e:
-            logger.warning("Ошибка обновления преподавателей: %s", e)
-
-    def _update_employee_post_counts(self):
-        """Обновляет счетчики постов для всех преподавателей в БД"""
-        try:
-            employees = self.db.get_employees_with_post_count()
-            if not employees:
-                return
-            
-            # Загружаем только нужные колонки, а не всю строку
-            posts = self.db.get_all_posts(limit=10000) # Лимит для защиты от OOM
-            logger.info("Загружено %d постов для анализа упоминаний", len(posts))
-            
-            for employee in employees:
-                employee_id = employee['id']
-                name = employee['name']
-                name_variants = self.get_employee_name_variants(name)
-                
-                post_count = 0
-                for post in posts:
-                    post_text = f"{post[2] or ''} {post[3] or ''}".lower()
-                    if any(v in post_text for v in name_variants):
-                        post_count += 1
-                
-                self.db.update_employee_post_count(employee_id, post_count)
-            logger.info("Счётчики постов преподавателей обновлены")
-            
-        except Exception as e:
-            logger.error("Ошибка обновления счётчиков: %s", e, exc_info=True)
-
-    def load_employee_list(self) -> List[str]:
-        db_employees = []
-        try:
-            db_employees = self.db.get_all_employees()
+            parsed = self.morph.parse(word)
+            if parsed:
+                # get_lexeme принимает объект Parse[0], а не строку
+                for lex in self.morph.get_lexeme(parsed[0]):
+                    forms.add(lex.lower())
+                    forms.add(lex.lower().replace('ё','е'))
         except Exception:
-            db_employees = []
+            pass
+        return forms
 
-        employees = [
-            normalize_name(name.strip()) 
-            for name in db_employees 
-            if name and len(name.strip()) > 3 and self.is_human_name(normalize_name(name.strip()))
-        ]
-        post_employees = self.extract_employees_from_posts()
-        all_employees = employees + post_employees
-        return remove_duplicates(all_employees)
-
-    def extract_employees_from_posts(self) -> List[str]:
-        posts = self.db.get_all_posts(limit=5000)
-        employees = []
+    def _prepare_employee(self, full_name: str) -> dict:
+        """Подготавливает данные сотрудника для поиска"""
+        parts = full_name.strip().split()
+        if len(parts) < 2: return {}
         
-        fio_pattern = re.compile(r'\b[А-ЯЁ]\.\s*[А-ЯЁ]\.\s*[А-ЯЁ][а-яё]+\b')
-        full_name_pattern = re.compile(r'\b[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\b')
-        surname_io_pattern = re.compile(r'\b[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.\s*[А-ЯЁ]\.\b')
-        
-        for post in posts:
-            full_text = f"{post[2] or ''} {post[3] or ''}"
-            matches = []
-            matches.extend(fio_pattern.findall(full_text))
-            matches.extend(full_name_pattern.findall(full_text))
-            matches.extend(surname_io_pattern.findall(full_text))
-            
-            for match in matches:
-                normalized = normalize_name(match)
-                if len(normalized) > 3 and self.is_human_name(normalized) and normalized not in employees:
-                    employees.append(normalized)
-        return employees
+        surname, first_name = parts[0], parts[1]
+        patronymic = parts[2] if len(parts) > 2 else ""
 
-    def is_human_name(self, name: str) -> bool:
-        words = name.split()
-        if not 2 <= len(words) <= 4:
-            return False
-        if not all(w[0].isupper() for w in words):
-            return False
-        if any(c.isdigit() for c in name):
-            return False
-            
-        non_human_words = {
-            'представители', 'регионального', 'центр', 'институт', 'факультет',
-            'кафедра', 'отдел', 'служба', 'управление', 'комитет', 'совет',
-            'ассоциация', 'организация', 'компания', 'фирма', 'завод', 'школа',
-            'колледж', 'университет', 'академия'
+        s_forms = self._get_forms(surname)
+        n_forms = self._get_forms(first_name)
+        p_forms = self._get_forms(patronymic) if patronymic else set()
+        
+        f_init = first_name[0].lower() if first_name else ''
+        p_init = patronymic[0].lower() if patronymic else ''
+        initials = [f"{f_init}.", f"{f_init}.{p_init}.", f"{f_init}", f"{f_init}.{p_init}"]
+
+        return {
+            'display': full_name,
+            'surname': surname,
+            's_forms': s_forms, 
+            'n_forms': n_forms, 
+            'p_forms': p_forms,
+            'initials': initials
         }
-        if any(w in name.lower() for w in non_human_words):
-            return False
-            
-        if '.' in name:
-            parts = [p for p in re.split(r'[.\s]+', name) if p]
-            if len(parts) == 3:
-                return len(parts[0]) == 1 and len(parts[1]) == 1 and len(parts[2]) > 1
-            elif len(parts) == 2:
-                return len(parts[0]) > 1 and len(parts[1]) == 2 and parts[1][1] == '.'
-        return True
 
-    def get_employee_name_variants(self, employee: str) -> List[str]:
-        variants = {employee.lower()}
-        parts = employee.split()
-        if len(parts) >= 3:
-            name, patronymic, surname = parts[0], parts[1], parts[2]
-            variants.add(surname.lower())
-            variants.add(f"{name[0]}.{patronymic[0]}.{surname}".lower())
-            variants.add(f"{name[0]}.{patronymic[0]} {surname}".lower())
-            variants.add(f"{name[0]}.{patronymic[0]}. {surname}".lower())
-            variants.add(f"{name} {patronymic} {surname}".lower())
-            variants.add(f"{name} {surname}".lower())
-            variants.add(f"{patronymic} {surname}".lower())
-        elif len(parts) >= 2:
-            variants.add(parts[-1].lower())
-        return list(variants)
+    def _is_mentioned(self, text: str, emp: dict) -> bool:
+        """Проверяет упоминание сотрудника через строгий контекст"""
+        t = text.lower().replace('ё', 'е')
+        
+        # 1. Жесткое совпадение: Фамилия + Имя / Имя + Фамилия / Фамилия + И.О.
+        pat = rf'\b({"|".join(map(re.escape, emp["s_forms"]))})\W+({"|".join(map(re.escape, emp["n_forms"]))}|{"|".join(map(re.escape, emp["initials"]))})\b'
+        if re.search(pat, t): return True
+        
+        if re.search(rf'\b({"|".join(map(re.escape, emp["n_forms"]))})\W+({"|".join(map(re.escape, emp["s_forms"]))})\b', t): return True
+        
+        # Если есть отчество, проверяем связку Фамилия + Отчество
+        if emp['p_forms'] and re.search(rf'\b({"|".join(map(re.escape, emp["s_forms"]))})\W+({"|".join(map(re.escape, emp["p_forms"]))})\b', t): return True
 
-    def normalize_employee_name_for_display(self, employee: str) -> str:
-        if not employee:
-            return ""
-        # Сохраняем возможные сокращения и инициалы в виде есть
-        if any(c.isupper() for c in employee) and '.' in employee:
-            return employee.strip()
-        parts = employee.split()
-        normalized_parts = []
-        for part in parts:
-            if part.isupper() or len(part) == 1:
-                normalized_parts.append(part.upper())
-            else:
-                normalized_parts.append(part.capitalize())
-        return " ".join(normalized_parts)
+        # 2. Поиск только по фамилии + проверка контекста
+        for sf in emp['s_forms']:
+            for m in re.finditer(rf'\b{re.escape(sf)}\b', t):
+                ctx = text[max(0, m.start()-50):min(len(text), m.end()+50)]
+                ctx_c = ctx.lower().replace('ё', 'е').replace(sf, ' ')
+                
+                # Наше имя/инициалы в контексте? -> Это ОН
+                if any(x in ctx_c for x in emp['n_forms']) or any(x in ctx_c for x in emp['initials']): return True
+                if emp['p_forms'] and any(x in ctx_c for x in emp['p_forms']): return True
+                
+                # Ищем другие capitalized-слова в контексте (потенциальные чужие имена)
+                others = re.findall(r'\b([А-ЯЁ][а-яё]+)\b', ctx)
+                conflict = False
+                for o in others:
+                    o_n = o.lower().replace('ё', 'е')
+                    # Если слово не принадлежит нашему сотруднику и длина > 2
+                    if len(o_n) > 2 and o_n not in emp['n_forms'] and o_n not in emp['p_forms'] and o_n not in emp['s_forms']:
+                        conflict = True
+                        break
+                if conflict:
+                    continue  # Ложное срабатывание, пропускаем
+                return True  # Контекст чист -> считаем совпадением
+        return False
 
     def get_top_employees(self, period_type: str, start_date: datetime = None,
-                          end_date: datetime = None, metric: str = 'mention_count',
-                          employees_list: List[str] = None, limit: int = 10) -> List[Dict]:
+                          end_date: datetime = None, metric: str = 'post_count', 
+                          limit: int = None) -> List[Dict]:
+        """Считает упоминания преподавателей из БД в постах за период."""
         if start_date is None or end_date is None:
             start_date, end_date = self.period_calc.get_period_range(period_type)
 
         start_str = self.period_calc.format_date(start_date)
         end_str = self.period_calc.format_date(end_date)
 
-        if employees_list is None:
-            employees_list = self.load_employee_list()
+        # 1. Загружаем эталонный список из БД
+        db_emps = self.db.get_all_employees()
+        if not db_emps: return []
+        
+        # 2. Готовим профили для поиска
+        profiles = [self._prepare_employee(name) for name in db_emps if name and len(name.strip())>2]
 
-        if not employees_list:
-            return []
-
-        employee_stats = []
+        # 3. Загружаем посты
         posts = self.db.get_posts_by_date_range(start_str, end_str)
-        if not posts:
-            return []
+        if not posts: return []
 
-        for employee in employees_list:
-            if not employee or len(employee.strip()) < 3:
-                continue
-
-            mention_count = 0
-            post_ids = set()
-            total_likes = 0
-            total_views = 0
-            name_pattern = re.compile(re.escape(employee), flags=re.IGNORECASE)
-
-            for post in posts:
-                full_text = f"{post[2] or ''} {post[3] or ''}"
-                matches = name_pattern.findall(full_text)
-                if not matches:
-                    continue
-
-                mention_count += len(matches)
-                post_ids.add(post[0])
-                stats = self.db.get_post_stats(post[0])
-                if stats:
-                    total_likes += stats.get('likes', 0)
-                    total_views += stats.get('views', 0)
-
-            if not post_ids:
-                continue
-
-            employee_stats.append({
-                'employee': employee,
-                'mention_count': mention_count,
-                'post_count': len(post_ids),
-                'total_likes': total_likes,
-                'total_views': total_views
-            })
-
-        metric_map = {
-            'mention_count': lambda x: x['mention_count'],
-            'post_count': lambda x: x['post_count'],
-            'total_likes': lambda x: x['total_likes'],
-            'total_views': lambda x: x['total_views']
-        }
-        employee_stats.sort(key=metric_map.get(metric, metric_map['mention_count']), reverse=True)
-        return employee_stats[:limit]
-
-    def analyze_posts_by_period(self, period_type: str, start_date: datetime = None, 
-                                end_date: datetime = None, metric: str = 'likes') -> List[Dict]:
-        if start_date is None or end_date is None:
-            start_date, end_date = self.period_calc.get_period_range(period_type)
-        
-        start_str = self.period_calc.format_date(start_date)
-        end_str = self.period_calc.format_date(end_date)
-        
-        posts = self.db.get_posts_by_date_range(start_str, end_str)
-        
-        # ✅ ПАКЕТНОЕ ПОЛУЧЕНИЕ СТАТИСТИКИ (вместо N+1)
-        # Если в БД добавите метод get_stats_bulk(post_ids), замените цикл на него.
-        # Пока используем агрегацию для ускорения.
         results = []
-        for post in posts:
-            pid = post[0]
-            stats = self.db.get_post_stats(pid)
-            if stats:
-                text = post[2] or ""
-                results.append({
-                    'post_id': pid,
-                    'date': post[1],
-                    'text': text[:100] + '...' if len(text) > 100 else text,
-                    'likes': stats['likes'],
-                    'comments': stats['comments'],
-                    'shares': stats['shares'],
-                    'views': stats['views']
-                })
-        
-        metric_map = {
-            'likes': lambda x: x['likes'],
-            'comments': lambda x: x['comments'],
-            'shares': lambda x: x['shares'],
-            'views': lambda x: x['views']
-        }
-        results.sort(key=metric_map.get(metric, metric_map['likes']), reverse=True)
-        return results
+        # Кэш текстов постов для скорости
+        post_texts = [(post[0], (post[2] or '') + " " + (post[3] or '')) for post in posts]
 
-    def get_top_posts(self, period_type: str, start_date: datetime = None, 
-                      end_date: datetime = None, metric: str = 'likes', limit: int = 10) -> List[Dict]:
+        # 4. Ищем совпадения
+        for emp in profiles:
+            if not emp: continue
+            matched_post_ids = set()
+            for pid, text in post_texts:
+                if self._is_mentioned(text, emp):
+                    matched_post_ids.add(pid)
+            
+            if matched_post_ids:
+                # Считаем лайки/просмотры только для найденных постов
+                total_likes = total_views = 0
+                for pid in matched_post_ids:
+                    stats = self.db.get_post_stats(pid)
+                    if stats:
+                        total_likes += stats.get('likes', 0)
+                        total_views += stats.get('views', 0)
+
+                results.append({
+                    'employee': emp['display'],
+                    'post_count': len(matched_post_ids),
+                    'total_likes': total_likes,
+                    'total_views': total_views
+                })
+
+        # 5. Сортируем по количеству постов (убывание)
+        sort_key = metric if metric in ('total_likes', 'total_views') else 'post_count'
+        results.sort(key=lambda x: x.get(sort_key, 0), reverse=True)
+        
+        return results[:limit] if limit is not None else results
+
+    def get_top_posts(self, period_type, start_date=None, end_date=None, metric='likes', limit=10):
         return self.analyze_posts_by_period(period_type, start_date, end_date, metric)[:limit]
 
-    def get_overall_statistics(self) -> Dict:
-        stats = self.db.get_stats()
-        # ✅ Используем агрегацию вместо цикла по всем постам
-        agg = self.db.get_aggregated_stats('2000-01-01', (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d'))
+    def analyze_posts_by_period(self, period_type, start_date=None, end_date=None, metric='likes'):
+        if start_date is None or end_date is None:
+            start_date, end_date = self.period_calc.get_period_range(period_type)
+        start_str, end_str = self.period_calc.format_date(start_date), self.period_calc.format_date(end_date)
+        posts = self.db.get_posts_by_date_range(start_str, end_str)
+        if not posts: return []
         
-        total_posts = stats['total'] or 1  # Защита от ZeroDivision
-        return {
-            'total_posts': stats['total'],
-            'total_photos': stats['photos'],
-            'total_videos': stats['videos'],
-            'total_likes': agg['total_likes'],
-            'total_comments': agg['total_comments'],
-            'total_shares': agg['total_shares'],
-            'total_views': agg['total_views'],
-            'avg_likes_per_post': agg['total_likes'] / total_posts,
-            'avg_views_per_post': agg['total_views'] / total_posts
-        }
+        results = []
+        for post in posts:
+            pid, date, text = post[0], post[1], post[2] or ""
+            stats = self.db.get_post_stats(pid)
+            if stats:
+                results.append({
+                    'post_id': pid, 'date': date, 'text': text[:100]+'...',
+                    'likes': stats['likes'], 'comments': stats['comments'],
+                    'shares': stats['shares'], 'views': stats['views']
+                })
+        mm = {'likes': lambda x: x['likes'], 'views': lambda x: x['views'], 'comments': lambda x: x['comments'], 'shares': lambda x: x['shares']}
+        results.sort(key=mm.get(metric, mm['likes']), reverse=True)
+        return results
 
-    def get_statistics_summary(self, period_type: str, start_date: datetime = None,
-                               end_date: datetime = None) -> Dict:
+    def get_statistics_summary(self, period_type, start_date=None, end_date=None):
         posts = self.analyze_posts_by_period(period_type, start_date, end_date, 'views')
-        if not posts:
-            return {
-                'period': self.period_calc.get_period_label(period_type, start_date or datetime.now(), end_date),
-                'total_posts': 0, 'total_likes': 0, 'total_views': 0, 'avg_views': 0
-            }
-        
-        total_likes = sum(p['likes'] for p in posts)
-        total_views = sum(p['views'] for p in posts)
-        count = len(posts)
-        
+        if not posts: return {'period': '...', 'total_posts': 0, 'total_likes': 0, 'total_views': 0}
         return {
-            'period': self.period_calc.get_period_label(period_type, start_date or datetime.now(), end_date),
-            'total_posts': count,
-            'total_likes': total_likes,
-            'total_views': total_views,
-            'avg_views': total_views / count,
-            'avg_likes': total_likes / count
+            'period': self.period_calc.get_period_label(period_type, start_date, end_date),
+            'total_posts': len(posts),
+            'total_likes': sum(p['likes'] for p in posts),
+            'total_views': sum(p['views'] for p in posts)
         }

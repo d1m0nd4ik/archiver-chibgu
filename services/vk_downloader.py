@@ -13,9 +13,24 @@ class VKDownloader:
     """Класс для загрузки контента из ВКонтакте (без конвертации)"""
     
     def __init__(self, token, group_identifier):
-        self.token = token
-        self.vk_session = vk_api.VkApi(token=token)
-        self.vk = self.vk_session.get_api()
+        if not token or not str(token).strip():
+            raise ValueError("Токен VK API не может быть пустым!")
+        
+        try:
+            self.token = token
+            self.vk_session = vk_api.VkApi(token=token)
+            self.vk = self.vk_session.get_api()
+        except Exception as e:
+            error_msg = str(e)
+            logger.error("VK API initialization failed: %s", error_msg)
+            
+            if "pka_resources" in error_msg:
+                raise Exception("Ошибка библиотеки vk_api. Попробуйте переустановить: pip install --upgrade vk-api requests") from e
+            elif "invalid access_token" in error_msg.lower():
+                raise Exception("Неверный или истёкший токен. Получите новый токен на https://vkhost.github.io/") from e
+            else:
+                raise Exception(f"Ошибка инициализации VK API: {error_msg}") from e
+        
         self.nlp = NLPProcessor()
         self.processor = MediaProcessor()
         self.db = Database()
