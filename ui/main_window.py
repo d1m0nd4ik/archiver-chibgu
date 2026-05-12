@@ -27,6 +27,8 @@ from .pages.stats_page import StatsPage
 from .pages.storage_page import StoragePage
 from .pages.settings_page import SettingsPage
 from .pages.about_page import AboutPage
+from .pages.teachers_page import TeachersPage
+from worker.update_stats_worker import UpdateStatsWorker
 
 class MainWindow(QMainWindow):
     """Главное окно приложения"""
@@ -98,21 +100,23 @@ class MainWindow(QMainWindow):
         content_layout_main.setContentsMargins(0, 0, 0, 0)
 
         self.stacked_widget = QStackedWidget()
-    
-        # Порядок ВАЖЕН! Должен соответствовать словарю в switch_page
-        self.download_page = DownloadPage(self.styles)      # 0
-        self.search_page = SearchPage(self.styles)          # 1
-        self.stats_page = StatsPage(self.styles)            # 2
-        self.storage_page = StoragePage(self.styles)        # 3
-        self.settings_page = SettingsPage(self.saved_theme, self.styles)  # 4
-        self.about_page = AboutPage(self.styles)            # 5
-        
-        self.stacked_widget.addWidget(self.download_page)   # индекс 0
-        self.stacked_widget.addWidget(self.search_page)     # индекс 1
-        self.stacked_widget.addWidget(self.stats_page)      # индекс 2
-        self.stacked_widget.addWidget(self.storage_page)    # индекс 3
-        self.stacked_widget.addWidget(self.settings_page)   # индекс 4
-        self.stacked_widget.addWidget(self.about_page)      # индекс 5
+
+        # Порядок важен! Индексы должны соответствовать словарю pages ниже
+        self.download_page = DownloadPage(self.styles)       # 0
+        self.search_page = SearchPage(self.styles)           # 1
+        self.stats_page = StatsPage(self.styles)             # 2
+        self.storage_page = StoragePage(self.styles)         # 3
+        self.teachers_page = TeachersPage(self.styles)       # 4
+        self.settings_page = SettingsPage(self.saved_theme, self.styles)  # 5
+        self.about_page = AboutPage(self.styles)             # 6
+
+        self.stacked_widget.addWidget(self.download_page)
+        self.stacked_widget.addWidget(self.search_page)
+        self.stacked_widget.addWidget(self.stats_page)
+        self.stacked_widget.addWidget(self.storage_page)
+        self.stacked_widget.addWidget(self.teachers_page)
+        self.stacked_widget.addWidget(self.settings_page)
+        self.stacked_widget.addWidget(self.about_page)
 
         content_layout_main.addWidget(self.stacked_widget)
         content_layout.addWidget(content_frame)
@@ -127,6 +131,7 @@ class MainWindow(QMainWindow):
         self.sidebar.buttons['search'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['stats'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['storage'].clicked_signal.connect(self.switch_page)
+        self.sidebar.buttons['teachers'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['settings'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['about'].clicked_signal.connect(self.switch_page)
         
@@ -145,7 +150,10 @@ class MainWindow(QMainWindow):
         if page_name in self.sidebar.buttons:
             self.sidebar.buttons[page_name].setChecked(True)
             
-        pages = {'download': 0, 'search': 1, 'stats': 2, 'storage': 3, 'settings': 4, 'about': 5}
+        pages = {
+            'download': 0, 'search': 1, 'stats': 2, 'storage': 3, 'teachers': 4,
+            'settings': 5, 'about': 6
+        }
         if page_name in pages:
             self.stacked_widget.setCurrentIndex(pages[page_name])
             if page_name == 'storage':

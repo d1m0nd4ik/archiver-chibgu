@@ -158,14 +158,14 @@ class Database:
         except Exception: 
             return False
 
-    def save_post(self, original_post_id, date, text, tags, likes=0, comments=0, shares=0, views=0):
+    def save_post(self, original_post_id, date, text, tags, likes=0, comments=0, shares=0):  # Убрали views=0
         try:
             if self.post_exists(original_post_id):
                 return False
             self._get_cursor().execute("""
-                INSERT INTO posts (original_post_id, date, text, tags, likes, comments, shares, views, last_stats_update)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """, (original_post_id, date, text, tags, likes, comments, shares, views))
+                INSERT INTO posts (original_post_id, date, text, tags, likes, comments, shares, last_stats_update)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """, (original_post_id, date, text, tags, likes, comments, shares))  # Убрали views
             self._get_conn().commit()
             return True
         except Exception as e:
@@ -243,27 +243,33 @@ class Database:
             return False
         
     def get_aggregated_stats(self, start_date: str, end_date: str) -> dict:
-        """Возвращает суммарную статистику за период ОДНИМ SQL-запросом"""
         try:
             cursor = self._get_cursor()
             row = cursor.execute("""
                 SELECT 
                     COALESCE(SUM(likes), 0), 
                     COALESCE(SUM(comments), 0), 
-                    COALESCE(SUM(shares), 0), 
-                    COALESCE(SUM(views), 0),
+                    COALESCE(SUM(shares), 0),
                     COUNT(*)
                 FROM posts 
                 WHERE date BETWEEN ? AND ?
             """, (start_date, end_date)).fetchone()
             return {
-                'total_likes': row[0], 'total_comments': row[1],
-                'total_shares': row[2], 'total_views': row[3],
-                'total_posts': row[4]
+                'total_likes': row[0], 
+                'total_comments': row[1],
+                'total_shares': row[2],
+                # 'total_views': row[3],  ← УДАЛЕНО
+                'total_posts': row[3]  # Индекс сдвинулся
             }
         except Exception as e:
             logger.error(f"[DB] Aggregation error: {e}")
-            return {'total_likes': 0, 'total_comments': 0, 'total_shares': 0, 'total_views': 0, 'total_posts': 0}
+            return {
+                'total_likes': 0, 
+                'total_comments': 0, 
+                'total_shares': 0,
+                # 'total_views': 0,  ← УДАЛЕНО
+                'total_posts': 0
+            }
 
     def get_employees_with_post_count(self):
         try:
@@ -304,13 +310,14 @@ class Database:
             return []
 
     def get_all_posts(self, limit=500):
-        """Читает посты И вложения (JOIN)"""
+        #Читает посты И вложения (JOIN)
         try:
             result = self._get_cursor().execute("""
-                SELECT p.original_post_id, MAX(p.id), MAX(p.date), MAX(p.text), MAX(p.tags),
-                       GROUP_CONCAT(a.media_type), GROUP_CONCAT(a.media_path), GROUP_CONCAT(a.file_size)
-                FROM posts p LEFT JOIN attachments a ON p.original_post_id = a.original_post_id
-                GROUP BY p.original_post_id ORDER BY p.date DESC LIMIT ?
+            SELECT p.original_post_id, MAX(p.id), MAX(p.date), MAX(p.text), MAX(p.tags),
+                   MAX(p.likes), MAX(p.comments), MAX(p.shares),
+                   GROUP_CONCAT(a.media_type), GROUP_CONCAT(a.media_path), GROUP_CONCAT(a.file_size)
+            FROM posts p LEFT JOIN attachments a ON p.original_post_id = a.original_post_id
+            GROUP BY p.original_post_id ORDER BY p.date DESC LIMIT ?
             """, (limit,)).fetchall()
             
             # ОТЛАДКА: проверяем что возвращаем
@@ -349,10 +356,12 @@ class Database:
 
     
     # === СТАТИСТИКА ===
-    def update_post_stats(self, original_post_id, likes, comments, shares, views):
+    def update_post_stats(self, original_post_id, likes, comments, shares):  # Убрали views
         try:
-            self._get_cursor().execute("UPDATE posts SET likes=?, comments=?, shares=?, views=?, last_stats_update=CURRENT_TIMESTAMP WHERE original_post_id=?", 
-                                       (likes, comments, shares, views, original_post_id))
+            self._get_cursor().execute(
+                "UPDATE posts SET likes=?, comments=?, shares=?, last_stats_update=CURRENT_TIMESTAMP WHERE original_post_id=?", 
+                (likes, comments, shares, original_post_id)  # Убрали views
+            )
             self._get_conn().commit()
             return True
         except Exception: 
@@ -360,8 +369,17 @@ class Database:
 
     def get_post_stats(self, original_post_id):
         try:
-            res = self._get_cursor().execute("SELECT likes, comments, shares, views, date FROM posts WHERE original_post_id=? LIMIT 1", (original_post_id,)).fetchone()
-            return {'likes': res[0] or 0, 'comments': res[1] or 0, 'shares': res[2] or 0, 'views': res[3] or 0, 'date': res[4]} if res else None
+            res = self._get_cursor().execute(
+                "SELECT likes, comments, shares, date FROM posts WHERE original_post_id=? LIMIT 1", 
+                (original_post_id,)
+            ).fetchone()
+            return {
+                'likes': res[0] or 0, 
+                'comments': res[1] or 0, 
+                'shares': res[2] or 0, 
+                # 'views': res[3] or 0,  ← УДАЛЕНО
+                'date': res[3]  # Индекс сдвинулся
+            } if res else None
         except Exception: 
             return None
 

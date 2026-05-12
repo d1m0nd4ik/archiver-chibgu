@@ -165,20 +165,24 @@ class StatisticsAnalyzer:
             stats = self.db.get_post_stats(pid)
             if stats:
                 results.append({
-                    'post_id': pid, 'date': date, 'text': text[:100]+'...',
-                    'likes': stats['likes'], 'comments': stats['comments'],
-                    'shares': stats['shares'], 'views': stats['views']
+                    'post_id': pid, 
+                    'date': post[1],
+                    'text': text[:100] + '...' if len(text) > 100 else text,
+                    'likes': stats['likes'], 
+                    'comments': stats['comments'],
+                    'shares': stats['shares']
                 })
-        mm = {'likes': lambda x: x['likes'], 'views': lambda x: x['views'], 'comments': lambda x: x['comments'], 'shares': lambda x: x['shares']}
+        mm = {'likes': lambda x: x['likes'], 'comments': lambda x: x['comments'], 'shares': lambda x: x['shares']}
         results.sort(key=mm.get(metric, mm['likes']), reverse=True)
         return results
 
     def get_statistics_summary(self, period_type, start_date=None, end_date=None):
-        posts = self.analyze_posts_by_period(period_type, start_date, end_date, 'views')
-        if not posts: return {'period': '...', 'total_posts': 0, 'total_likes': 0, 'total_views': 0}
+        posts = self.analyze_posts_by_period(period_type, start_date, end_date)
+        if not posts: return {'period': '...', 'total_posts': 0, 'total_likes': 0, 'total_comments': 0, 'total_shares': 0}
         return {
             'period': self.period_calc.get_period_label(period_type, start_date, end_date),
             'total_posts': len(posts),
             'total_likes': sum(p['likes'] for p in posts),
-            'total_views': sum(p['views'] for p in posts)
+            'total_comments': sum(p['comments'] for p in posts),
+            'total_shares': sum(p['shares'] for p in posts)
         }

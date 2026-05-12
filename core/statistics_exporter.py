@@ -7,6 +7,8 @@ import time
 from datetime import datetime
 from typing import List, Dict
 from pathlib import Path
+
+from requests import post
 from core.logging_config import logger
 
 try:
@@ -35,8 +37,7 @@ class StatisticsExporter:
         filepath = os.path.join(self.export_dir, filename)
         try:
             with open(filepath, 'w', newline='', encoding='utf-8-sig') as csvfile:
-                fieldnames = ['ID', 'Дата', 'Текст', 'Лайки', 'Комментарии', 
-                              'Поделиться', 'Просмотры', 'Всего взаимодействий']
+                fieldnames = ['ID', 'Дата', 'Текст', 'Лайки', 'Комментарии', 'Поделиться']
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 writer.writeheader()
                 for post in posts:
@@ -46,8 +47,7 @@ class StatisticsExporter:
                         'Текст': post.get('text', ''),
                         'Лайки': post.get('likes', 0),
                         'Комментарии': post.get('comments', 0),
-                        'Поделиться': post.get('shares', 0),
-                        'Просмотры': post.get('views', 0)
+                        'Поделиться': post.get('shares', 0)
                     })
             logger.info("Посты экспортированы в %s", filepath)
             return filepath
@@ -125,8 +125,7 @@ class StatisticsExporter:
             ws = wb.active
             ws.title = 'Посты'
             
-            headers = ['ID', 'Дата', 'Текст', 'Лайки', 'Комментарии', 
-                       'Поделиться', 'Просмотры', 'Всего взаимодействий']
+            headers = ['ID', 'Дата', 'Текст', 'Лайки', 'Комментарии', 'Поделиться']
             ws.append(headers)
             
             header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
@@ -139,8 +138,7 @@ class StatisticsExporter:
             for post in posts:
                 ws.append([
                     post.get('post_id', ''), post.get('date', ''), post.get('text', ''),
-                    post.get('likes', 0), post.get('comments', 0), post.get('shares', 0),
-                    post.get('views', 0)
+                    post.get('likes', 0), post.get('comments', 0), post.get('shares', 0)
                 ])
             
             for col, width in [('A', 12), ('B', 12), ('C', 40), ('D', 12), 

@@ -189,12 +189,13 @@ class SidebarWidget(QFrame):
         self.buttons['search'] = NavigationButton("", "Поиск в архиве", "search", self.theme)
         self.buttons['stats'] = NavigationButton("", "Статистика", "stats", self.theme)
         self.buttons['storage'] = NavigationButton("", "Хранилище", "storage", self.theme)
+        self.buttons['teachers'] = NavigationButton("", "Преподаватели", "teachers", self.theme)
 
         for btn in self.buttons.values():
             layout.addWidget(btn)
 
         layout.addSpacing(20)
-
+        
         settings_label = QLabel("НАСТРОЙКИ")
         settings_label.setStyleSheet(self._get_section_label_style())
         layout.addWidget(settings_label)
@@ -203,7 +204,7 @@ class SidebarWidget(QFrame):
         self.buttons['about'] = NavigationButton("", "О программе", "about", self.theme)
 
         for btn in self.buttons.values():
-            if btn not in list(self.buttons.values())[:4]:
+            if btn not in list(self.buttons.values())[:5]:
                 layout.addWidget(btn)
 
         layout.addStretch()

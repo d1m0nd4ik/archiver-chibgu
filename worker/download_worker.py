@@ -96,10 +96,9 @@ class DownloadWorker(QThread):
                 likes = post.get('likes', {}).get('count', 0)
                 comments = post.get('comments', {}).get('count', 0)
                 shares = post.get('reposts', {}).get('count', 0)
-                views = post.get('views', {}).get('count', 0)
 
                 if vk.db.post_exists(post_id):
-                    if vk.db.update_post_stats(post_id, likes, comments, shares, views):
+                    if vk.db.update_post_stats(post_id, likes, comments, shares):
                         self.signals.progress.emit(f"🔁 Обновлены лайки/просмотры поста {post_id}")
                     else:
                         self.signals.progress.emit(f"⚠️ Не удалось обновить статистику поста {post_id}")
@@ -122,9 +121,9 @@ class DownloadWorker(QThread):
                 vk.db.save_post(
                     original_post_id=post_id, date=date, text=text,
                     tags=" ".join(found_tags) if found_tags else "",
-                    likes=likes, comments=comments, shares=shares, views=views
+                    likes=likes, comments=comments, shares=shares  # Убрали views=views
                 )
-                
+                                
                 for index, attach in enumerate(attachments, 1):
                     att_type = attach['type']
                     media_path = None
