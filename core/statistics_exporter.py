@@ -64,8 +64,8 @@ class StatisticsExporter:
         filepath = os.path.join(self.export_dir, filename)
         try:
             with open(filepath, 'w', newline='', encoding='utf-8-sig') as csvfile:
-                fieldnames = ['ФИО', 'Упоминаний', 'Постов', 'Всего лайков', 
-                              'Всего просмотров', 'Средние лайки на пост']
+                fieldnames = ['ФИО', 'Упоминаний', 'Постов', 'Всего лайков',
+                              'Средние лайки на пост']
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 writer.writeheader()
                 for emp in employees:
@@ -74,7 +74,6 @@ class StatisticsExporter:
                         'Упоминаний': emp.get('mention_count', 0),
                         'Постов': emp.get('post_count', 0),
                         'Всего лайков': emp.get('total_likes', 0),
-                        'Всего просмотров': emp.get('total_views', 0),
                         'Средние лайки на пост': f"{emp.get('avg_post_likes', 0):.2f}"
                     })
             logger.info("Преподаватели экспортированы в %s", filepath)
@@ -92,14 +91,15 @@ class StatisticsExporter:
         filepath = os.path.join(self.export_dir, filename)
         try:
             with open(filepath, 'w', newline='', encoding='utf-8-sig') as csvfile:
-                fieldnames = ['Ключ медиа', 'Тип', 'Просмотры', 'Дата']
+                fieldnames = ['Ключ медиа', 'Тип', 'Лайки', 'Комментарии', 'Дата']
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 writer.writeheader()
                 for m in media:
                     writer.writerow({
                         'Ключ медиа': m.get('media_key', ''),
                         'Тип': m.get('type', ''),
-                        'Просмотры': m.get('metric_value', 0),
+                        'Лайки': m.get('likes', m.get('metric_value', 0)),
+                        'Комментарии': m.get('comments', 0),
                         'Дата': m.get('date', '')
                     })
             logger.info("Медиа экспортировано в %s", filepath)
@@ -171,8 +171,8 @@ class StatisticsExporter:
             ws = wb.active
             ws.title = 'Преподаватели'
             
-            headers = ['ФИО', 'Упоминаний', 'Постов', 'Всего лайков', 
-                       'Всего просмотров', 'Средние лайки на пост']
+            headers = ['ФИО', 'Упоминаний', 'Постов', 'Всего лайков',
+                       'Средние лайки на пост']
             ws.append(headers)
             
             header_fill = PatternFill(start_color='70AD47', end_color='70AD47', fill_type='solid')
@@ -185,14 +185,14 @@ class StatisticsExporter:
             for emp in employees:
                 ws.append([
                     emp.get('employee', ''), emp.get('mention_count', 0), emp.get('post_count', 0),
-                    emp.get('total_likes', 0), emp.get('total_views', 0),
+                    emp.get('total_likes', 0),
                     f"{emp.get('avg_post_likes', 0):.2f}"
                 ])
             
-            for col, width in [('A', 30), ('B', 12), ('C', 12), ('D', 15), ('E', 15), ('F', 18)]:
+            for col, width in [('A', 30), ('B', 12), ('C', 12), ('D', 15), ('E', 18)]:
                 ws.column_dimensions[col].width = width
                 
-            for row in ws.iter_rows(min_row=2, min_col=2, max_col=6):
+            for row in ws.iter_rows(min_row=2, min_col=2, max_col=5):
                 for cell in row:
                     cell.alignment = Alignment(horizontal='center')
             
@@ -227,9 +227,7 @@ class StatisticsExporter:
             ws['A4'] = 'Всего фото:'; ws['B4'] = stats.get('total_photos', 0)
             ws['A5'] = 'Всего видео:'; ws['B5'] = stats.get('total_videos', 0)
             ws['A6'] = 'Всего лайков:'; ws['B6'] = stats.get('total_likes', 0)
-            ws['A7'] = 'Всего просмотров:'; ws['B7'] = stats.get('total_views', 0)
-            ws['A8'] = 'Средние лайки на пост:'; ws['B8'] = f"{stats.get('avg_likes_per_post', 0):.2f}"
-            ws['A9'] = 'Средние просмотры на пост:'; ws['B9'] = f"{stats.get('avg_views_per_post', 0):.2f}"
+            ws['A7'] = 'Средние лайки на пост:'; ws['B7'] = f"{stats.get('avg_likes_per_post', 0):.2f}"
             
             ws.column_dimensions['A'].width = 25
             ws.column_dimensions['B'].width = 20

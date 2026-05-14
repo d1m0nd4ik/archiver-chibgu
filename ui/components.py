@@ -187,9 +187,10 @@ class SidebarWidget(QFrame):
         self.buttons = {}
         self.buttons['download'] = NavigationButton("", "Загрузка контента", "download", self.theme)
         self.buttons['search'] = NavigationButton("", "Поиск в архиве", "search", self.theme)
-        self.buttons['stats'] = NavigationButton("", "Статистика", "stats", self.theme)
-        self.buttons['storage'] = NavigationButton("", "Хранилище", "storage", self.theme)
-        self.buttons['teachers'] = NavigationButton("", "Преподаватели", "teachers", self.theme)
+        self.buttons['stats'] = NavigationButton("", "Статистика постов", "stats", self.theme)
+        self.buttons['storage'] = NavigationButton("", "Хранилище медиа", "storage", self.theme)
+        self.buttons['media_stats'] = NavigationButton("", "Статистика медиа", "media_stats", self.theme)
+        self.buttons['teachers'] = NavigationButton("", "Преподаватели в постах", "teachers", self.theme)
 
         for btn in self.buttons.values():
             layout.addWidget(btn)
@@ -204,7 +205,7 @@ class SidebarWidget(QFrame):
         self.buttons['about'] = NavigationButton("", "О программе", "about", self.theme)
 
         for btn in self.buttons.values():
-            if btn not in list(self.buttons.values())[:5]:
+            if btn not in list(self.buttons.values())[:6]:
                 layout.addWidget(btn)
 
         layout.addStretch()

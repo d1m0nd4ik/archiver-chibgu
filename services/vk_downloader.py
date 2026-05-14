@@ -221,11 +221,10 @@ class VKDownloader:
                     likes = post.get('likes', {}).get('count', 0)
                     comments = post.get('comments', {}).get('count', 0)
                     shares = post.get('reposts', {}).get('count', 0)
-                    views = post.get('views', {}).get('count', 0)
-                    
+
                     self.db.save_post(
                         original_post_id=post_id, date=date, text=text, tags=tags,
-                        likes=likes, comments=comments, shares=shares, views=views
+                        likes=likes, comments=comments, shares=shares
                     )
 
                     for attach in post.get('attachments', []):

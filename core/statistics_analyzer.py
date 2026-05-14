@@ -128,23 +128,20 @@ class StatisticsAnalyzer:
                     matched_post_ids.add(pid)
             
             if matched_post_ids:
-                # Считаем лайки/просмотры только для найденных постов
-                total_likes = total_views = 0
+                total_likes = 0
                 for pid in matched_post_ids:
                     stats = self.db.get_post_stats(pid)
                     if stats:
                         total_likes += stats.get('likes', 0)
-                        total_views += stats.get('views', 0)
 
                 results.append({
                     'employee': emp['display'],
                     'post_count': len(matched_post_ids),
                     'total_likes': total_likes,
-                    'total_views': total_views
                 })
 
         # 5. Сортируем по количеству постов (убывание)
-        sort_key = metric if metric in ('total_likes', 'total_views') else 'post_count'
+        sort_key = metric if metric == 'total_likes' else 'post_count'
         results.sort(key=lambda x: x.get(sort_key, 0), reverse=True)
         
         return results[:limit] if limit is not None else results

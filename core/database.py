@@ -6,7 +6,7 @@ from core.logging_config import logger
 class Database:
     """Потокобезопасная БД с нормальной структурой (посты + вложения)"""
     
-    CURRENT_SCHEMA_VERSION = 4
+    CURRENT_SCHEMA_VERSION = 5
     _schema_initialized = False
     _init_lock = threading.Lock()
 
@@ -19,8 +19,10 @@ class Database:
 
     def _get_conn(self):
         if not hasattr(self._local, 'conn') or self._local.conn is None:
-            self._local.conn = sqlite3.connect(self.db_name, check_same_thread=False)
+            self._local.conn = sqlite3.connect(self.db_name, check_same_thread=False, timeout=60.0)
             self._local.conn.execute("PRAGMA journal_mode=WAL")
+            # Ожидание при конкурирующих подключениях (таймер UI + воркер VK)
+            self._local.conn.execute("PRAGMA busy_timeout=60000")
         return self._local.conn
 
     def _get_cursor(self):
@@ -49,8 +51,8 @@ class Database:
                 
                 try:
                     cursor.execute("""
-                        INSERT INTO posts (original_post_id, date, text, tags, likes, comments, shares, views)
-                        SELECT original_post_id, date, text, tags, likes, comments, shares, views 
+                        INSERT INTO posts (original_post_id, date, text, tags, likes, comments, shares, last_stats_update)
+                        SELECT original_post_id, date, text, tags, likes, comments, shares, CURRENT_TIMESTAMP
                         FROM posts_backup
                     """)
                     logger.info("[DB] Данные постов успешно перенесены в новую схему.")
@@ -74,6 +76,24 @@ class Database:
                         
                 cursor.execute("INSERT OR REPLACE INTO schema_version (id, version) VALUES (1, 4)")
                 conn.commit()
+                current_version = 4
+
+            # === Миграция v4 -> v5: удаление неиспользуемых колонок счётчиков ===
+            if current_version < 5:
+                logger.info("[DB] Миграция v4 -> v5 (очистка схемы)...")
+                for drop_sql in (
+                    "ALTER TABLE posts DROP COLUMN views",
+                    "ALTER TABLE post_statistics DROP COLUMN views",
+                    "ALTER TABLE employee_statistics DROP COLUMN total_views",
+                    "ALTER TABLE media_statistics DROP COLUMN views",
+                ):
+                    try:
+                        cursor.execute(drop_sql)
+                    except Exception as e:
+                        if "no such column" not in str(e).lower():
+                            logger.warning("[DB] Пропуск миграции колонки: %s — %s", drop_sql, e)
+                cursor.execute("INSERT OR REPLACE INTO schema_version (id, version) VALUES (1, 5)")
+                conn.commit()
 
             Database._schema_initialized = True
 
@@ -88,7 +108,6 @@ class Database:
                 likes INTEGER DEFAULT 0,
                 comments INTEGER DEFAULT 0,
                 shares INTEGER DEFAULT 0,
-                views INTEGER DEFAULT 0, 
                 last_stats_update TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -125,20 +144,20 @@ class Database:
             id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER, original_post_id INTEGER,
             period_type TEXT, period_start TEXT, period_end TEXT,
             likes INTEGER DEFAULT 0, comments INTEGER DEFAULT 0, shares INTEGER DEFAULT 0,
-            views INTEGER DEFAULT 0, rank INTEGER, recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+            rank INTEGER, recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_post_stats_period ON post_statistics(period_type, period_start, period_end)")
 
         cursor.execute("""CREATE TABLE IF NOT EXISTS employee_statistics (
             id INTEGER PRIMARY KEY AUTOINCREMENT, employee_name TEXT, period_type TEXT,
             period_start TEXT, period_end TEXT, mention_count INTEGER DEFAULT 0,
-            post_count INTEGER DEFAULT 0, total_likes INTEGER DEFAULT 0, total_views INTEGER DEFAULT 0,
+            post_count INTEGER DEFAULT 0, total_likes INTEGER DEFAULT 0,
             rank INTEGER, recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_emp_stats_name_period ON employee_statistics(employee_name, period_type, period_start)")
 
         cursor.execute("""CREATE TABLE IF NOT EXISTS media_statistics (
             id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER, media_key TEXT,
             media_type TEXT, date TEXT, likes INTEGER DEFAULT 0, comments INTEGER DEFAULT 0,
-            shares INTEGER DEFAULT 0, views INTEGER DEFAULT 0, last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+            shares INTEGER DEFAULT 0, last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_media_stats_unique ON media_statistics(media_key, media_type)")
 
         cursor.execute("""CREATE TABLE IF NOT EXISTS employees (
@@ -158,14 +177,14 @@ class Database:
         except Exception: 
             return False
 
-    def save_post(self, original_post_id, date, text, tags, likes=0, comments=0, shares=0):  # Убрали views=0
+    def save_post(self, original_post_id, date, text, tags, likes=0, comments=0, shares=0):
         try:
             if self.post_exists(original_post_id):
                 return False
             self._get_cursor().execute("""
                 INSERT INTO posts (original_post_id, date, text, tags, likes, comments, shares, last_stats_update)
                 VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """, (original_post_id, date, text, tags, likes, comments, shares))  # Убрали views
+            """, (original_post_id, date, text, tags, likes, comments, shares))
             self._get_conn().commit()
             return True
         except Exception as e:
@@ -258,8 +277,7 @@ class Database:
                 'total_likes': row[0], 
                 'total_comments': row[1],
                 'total_shares': row[2],
-                # 'total_views': row[3],  ← УДАЛЕНО
-                'total_posts': row[3]  # Индекс сдвинулся
+                'total_posts': row[3]
             }
         except Exception as e:
             logger.error(f"[DB] Aggregation error: {e}")
@@ -267,7 +285,6 @@ class Database:
                 'total_likes': 0, 
                 'total_comments': 0, 
                 'total_shares': 0,
-                # 'total_views': 0,  ← УДАЛЕНО
                 'total_posts': 0
             }
 
@@ -356,15 +373,72 @@ class Database:
 
     
     # === СТАТИСТИКА ===
-    def update_post_stats(self, original_post_id, likes, comments, shares):  # Убрали views
+    def update_post_stats(self, original_post_id, likes, comments, shares):
         try:
-            self._get_cursor().execute(
-                "UPDATE posts SET likes=?, comments=?, shares=?, last_stats_update=CURRENT_TIMESTAMP WHERE original_post_id=?", 
-                (likes, comments, shares, original_post_id)  # Убрали views
+            pid = int(original_post_id)
+            conn = self._get_conn()
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE posts SET likes=?, comments=?, shares=?, last_stats_update=CURRENT_TIMESTAMP WHERE original_post_id=?",
+                (likes, comments, shares, pid),
             )
-            self._get_conn().commit()
+            if cur.rowcount > 0:
+                ok = True
+            else:
+                cur2 = conn.cursor()
+                ok = cur2.execute(
+                    "SELECT 1 FROM posts WHERE original_post_id=? LIMIT 1", (pid,)
+                ).fetchone() is not None
+            conn.commit()
+            return ok
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower():
+                logger.error(
+                    "БД занята (database is locked), не удалось записать статистику поста %s: %s",
+                    original_post_id,
+                    e,
+                )
+            else:
+                logger.error("Ошибка SQLite при update_post_stats(%s): %s", original_post_id, e, exc_info=True)
+            return False
+        except Exception as e:
+            logger.error("update_post_stats(%s): %s", original_post_id, e, exc_info=True)
+            return False
+
+    def update_post_stats_batch(self, rows):
+        """
+        Обновляет счётчики для нескольких постов в одной транзакции.
+        rows: последовательность (original_post_id, likes, comments, shares).
+        """
+        if not rows:
             return True
-        except Exception: 
+        conn = None
+        try:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            for pid, likes, comments, shares in rows:
+                cur.execute(
+                    "UPDATE posts SET likes=?, comments=?, shares=?, last_stats_update=CURRENT_TIMESTAMP "
+                    "WHERE original_post_id=?",
+                    (likes, comments, shares, int(pid)),
+                )
+            conn.commit()
+            return True
+        except sqlite3.OperationalError as e:
+            logger.error("update_post_stats_batch (locked или SQLite): %s", e, exc_info=True)
+            if conn is not None:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            return False
+        except Exception as e:
+            logger.error("update_post_stats_batch: %s", e, exc_info=True)
+            if conn is not None:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
             return False
 
     def get_post_stats(self, original_post_id):
@@ -374,19 +448,19 @@ class Database:
                 (original_post_id,)
             ).fetchone()
             return {
-                'likes': res[0] or 0, 
-                'comments': res[1] or 0, 
-                'shares': res[2] or 0, 
-                # 'views': res[3] or 0,  ← УДАЛЕНО
-                'date': res[3]  # Индекс сдвинулся
+                'likes': res[0] or 0,
+                'comments': res[1] or 0,
+                'shares': res[2] or 0,
+                'date': res[3]
             } if res else None
         except Exception: 
             return None
 
-    def save_post_period_statistics(self, original_post_id, period_type, period_start, period_end, likes, comments, shares, views, rank):
+    def save_post_period_statistics(self, original_post_id, period_type, period_start, period_end, likes, comments, shares, rank):
         try:
-            self._get_cursor().execute("INSERT INTO post_statistics (original_post_id, period_type, period_start, period_end, likes, comments, shares, views, rank) VALUES (?,?,?,?,?,?,?,?,?)",
-                                       (original_post_id, period_type, period_start, period_end, likes, comments, shares, views, rank))
+            self._get_cursor().execute(
+                "INSERT INTO post_statistics (original_post_id, period_type, period_start, period_end, likes, comments, shares, rank) VALUES (?,?,?,?,?,?,?,?)",
+                (original_post_id, period_type, period_start, period_end, likes, comments, shares, rank))
             self._get_conn().commit()
             return True
         except Exception: 
@@ -394,7 +468,7 @@ class Database:
 
     def get_top_posts_by_period(self, period_type, period_start, period_end, metric='likes', limit=10):
         try:
-            metric_map = {'likes': 'likes', 'comments': 'comments', 'shares': 'shares', 'views': 'views'}
+            metric_map = {'likes': 'likes', 'comments': 'comments', 'shares': 'shares'}
             col = metric_map.get(metric, 'likes')
             return self._get_cursor().execute(f"""
                 SELECT ps.original_post_id, ps.{col}, p.text, p.date FROM post_statistics ps
@@ -414,10 +488,11 @@ class Database:
         except Exception: 
             return []
 
-    def save_employee_statistics(self, employee_name, period_type, period_start, period_end, mention_count, post_count, total_likes, total_views, rank):
+    def save_employee_statistics(self, employee_name, period_type, period_start, period_end, mention_count, post_count, total_likes, rank):
         try:
-            self._get_cursor().execute("INSERT INTO employee_statistics (employee_name, period_type, period_start, period_end, mention_count, post_count, total_likes, total_views, rank) VALUES (?,?,?,?,?,?,?,?,?)",
-                                       (employee_name, period_type, period_start, period_end, mention_count, post_count, total_likes, total_views, rank))
+            self._get_cursor().execute(
+                "INSERT INTO employee_statistics (employee_name, period_type, period_start, period_end, mention_count, post_count, total_likes, rank) VALUES (?,?,?,?,?,?,?,?)",
+                (employee_name, period_type, period_start, period_end, mention_count, post_count, total_likes, rank))
             self._get_conn().commit()
             return True
         except Exception: 
@@ -425,9 +500,10 @@ class Database:
 
     def get_top_employees_by_period(self, period_type, period_start, period_end, metric='mention_count', limit=10):
         try:
-            col = {'mention_count': 'mention_count', 'post_count': 'post_count', 'total_likes': 'total_likes', 'total_views': 'total_views'}.get(metric, 'mention_count')
-            return self._get_cursor().execute(f"SELECT employee_name, {col}, post_count, mention_count, total_views FROM employee_statistics WHERE period_type=? AND period_start=? AND period_end=? ORDER BY {col} DESC LIMIT ?", 
-                                              (period_type, period_start, period_end, limit)).fetchall()
+            col = {'mention_count': 'mention_count', 'post_count': 'post_count', 'total_likes': 'total_likes'}.get(metric, 'mention_count')
+            return self._get_cursor().execute(
+                f"SELECT employee_name, {col}, post_count, mention_count FROM employee_statistics WHERE period_type=? AND period_start=? AND period_end=? ORDER BY {col} DESC LIMIT ?",
+                (period_type, period_start, period_end, limit)).fetchall()
         except Exception: 
             return []
 
@@ -440,18 +516,21 @@ class Database:
         except Exception: 
             return 0
 
-    def save_media_statistics(self, post_id, media_key, media_type, date, likes, comments, shares, views):
+    def save_media_statistics(self, post_id, media_key, media_type, date, likes, comments, shares):
         try:
-            self._get_cursor().execute("INSERT OR REPLACE INTO media_statistics (post_id, media_key, media_type, date, likes, comments, shares, views) VALUES (?,?,?,?,?,?,?,?)",
-                                       (post_id, media_key, media_type, date, likes, comments, shares, views))
+            self._get_cursor().execute("""
+                INSERT OR REPLACE INTO media_statistics 
+                (post_id, media_key, media_type, date, likes, comments, shares) 
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (post_id, media_key, media_type, date, likes, comments, shares))
             self._get_conn().commit()
             return True
         except Exception: 
             return False
 
-    def get_top_media_by_period(self, media_type, period_type, period_start, period_end, metric='views', limit=10):
+    def get_top_media_by_period(self, media_type, period_type, period_start, period_end, metric='likes', limit=10):
         try:
-            col = {'likes': 'likes', 'comments': 'comments', 'shares': 'shares', 'views': 'views'}.get(metric, 'views')
+            col = {'likes': 'likes', 'comments': 'comments', 'shares': 'shares'}.get(metric, 'likes')
             return self._get_cursor().execute(f"SELECT media_key, media_type, {col}, date FROM media_statistics WHERE media_type=? AND date >= ? AND date <= ? ORDER BY {col} DESC LIMIT ?", 
                                               (media_type, period_start, period_end, limit)).fetchall()
         except Exception: 

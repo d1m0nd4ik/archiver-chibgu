@@ -28,7 +28,7 @@ from .pages.storage_page import StoragePage
 from .pages.settings_page import SettingsPage
 from .pages.about_page import AboutPage
 from .pages.teachers_page import TeachersPage
-from worker.update_stats_worker import UpdateStatsWorker
+from .pages.media_stats_page import MediaStatsPage
 
 class MainWindow(QMainWindow):
     """Главное окно приложения"""
@@ -105,7 +105,8 @@ class MainWindow(QMainWindow):
         self.download_page = DownloadPage(self.styles)       # 0
         self.search_page = SearchPage(self.styles)           # 1
         self.stats_page = StatsPage(self.styles)             # 2
-        self.storage_page = StoragePage(self.styles)         # 3
+        self.storage_page = StoragePage(self.styles)        # 3
+        self.media_stats_page = MediaStatsPage(self.styles)         
         self.teachers_page = TeachersPage(self.styles)       # 4
         self.settings_page = SettingsPage(self.saved_theme, self.styles)  # 5
         self.about_page = AboutPage(self.styles)             # 6
@@ -114,6 +115,7 @@ class MainWindow(QMainWindow):
         self.stacked_widget.addWidget(self.search_page)
         self.stacked_widget.addWidget(self.stats_page)
         self.stacked_widget.addWidget(self.storage_page)
+        self.stacked_widget.addWidget(self.media_stats_page)
         self.stacked_widget.addWidget(self.teachers_page)
         self.stacked_widget.addWidget(self.settings_page)
         self.stacked_widget.addWidget(self.about_page)
@@ -131,6 +133,7 @@ class MainWindow(QMainWindow):
         self.sidebar.buttons['search'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['stats'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['storage'].clicked_signal.connect(self.switch_page)
+        self.sidebar.buttons['media_stats'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['teachers'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['settings'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['about'].clicked_signal.connect(self.switch_page)
@@ -151,9 +154,15 @@ class MainWindow(QMainWindow):
             self.sidebar.buttons[page_name].setChecked(True)
             
         pages = {
-            'download': 0, 'search': 1, 'stats': 2, 'storage': 3, 'teachers': 4,
-            'settings': 5, 'about': 6
-        }
+        'download': 0, 
+        'search': 1, 
+        'stats': 2, 
+        'storage': 3, 
+        'media_stats': 4,
+        'teachers' : 5,
+        'settings': 6, 
+        'about': 7
+    }
         if page_name in pages:
             self.stacked_widget.setCurrentIndex(pages[page_name])
             if page_name == 'storage':
@@ -189,6 +198,11 @@ class MainWindow(QMainWindow):
     def update_stats(self):
         """Безопасное обновление статуса"""
         try:
+            sw = getattr(self.storage_page, "stats_worker", None)
+            if sw is not None and sw.isRunning():
+                return
+            if getattr(self, "worker", None) is not None and self.worker.isRunning():
+                return
             db = Database()
             stats = db.get_stats()
             db.close()

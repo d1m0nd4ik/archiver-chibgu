@@ -11,7 +11,7 @@ from PySide6.QtMultimediaWidgets import QVideoWidget
 from core.database import Database
 from core.logging_config import logger
 from ui.styles import STYLES
-from worker.update_stats_worker import UpdateStatsWorker
+from worker.download_worker import WallStatsRefreshWorker
 from core.config_manager import load_env_settings
 
 class StoragePage(QWidget):
@@ -161,7 +161,6 @@ class StoragePage(QWidget):
         text = str(post[3]) if len(post) > 3 and post[3] is not None else ""
         tags = str(post[4]) if len(post) > 4 and post[4] is not None else ""
         
-        # ✅ Статистика (Без просмотров)
         likes = post[5] if len(post) > 5 else 0
         comments = post[6] if len(post) > 6 else 0
         shares = post[7] if len(post) > 7 else 0
@@ -579,6 +578,15 @@ class StoragePage(QWidget):
             settings = load_env_settings()
             token = settings.get('token', '')
             group_link = settings.get('group_link', '')
+
+            win = self.window()
+            if hasattr(win, 'download_page'):
+                ui_token = win.download_page.token_input.text().strip()
+                ui_group = win.download_page.group_input.text().strip()
+                if ui_token:
+                    token = ui_token
+                if ui_group:
+                    group_link = ui_group
             
             if not token:
                 QMessageBox.warning(self, "Ошибка", "Не найден токен VK!\nПерейдите на страницу загрузки и введите токен.")
@@ -588,22 +596,27 @@ class StoragePage(QWidget):
                 QMessageBox.warning(self, "Ошибка", "Не найдена ссылка на группу!\nПерейдите на страницу загрузки и укажите группу.")
                 return
             
-            # ✅ Диалог подтверждения (БЕЗ просмотров)
             reply = QMessageBox.question(
                 self,
                 "Подтверждение",
-                "Обновить статистику для всех постов из VK?\n\n"
-                "Это может занять несколько минут.\n"
-                "Будут обновлены: лайки, комментарии, репосты",
+                "Обновить лайки, комментарии и репосты для постов архива?\n\n"
+                "Используется тот же запрос к стене VK (wall.get), что и при загрузке медиа — "
+                "пачками по 100 записей, без отдельного запроса на каждый пост.\n\n"
+                "Обновляются только посты, которые есть в базе и попадают в последние "
+                "≈4000 записей на стене сообщества.",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
             
             if reply == QMessageBox.Yes:
+                win = self.window()
+                if hasattr(win, 'save_settings'):
+                    win.save_settings()
+
                 self.update_stats_btn.setEnabled(False)
                 self.load_more_btn.setEnabled(False)
                 
-                self.stats_worker = UpdateStatsWorker(token, group_link)
+                self.stats_worker = WallStatsRefreshWorker(token, group_link)
                 self.stats_worker.signals.progress.connect(self.on_stats_progress)
                 self.stats_worker.signals.finished.connect(self.on_stats_finished)
                 self.stats_worker.signals.error.connect(self.on_stats_error)
@@ -618,18 +631,39 @@ class StoragePage(QWidget):
     def on_stats_progress(self, message):
         self.storage_stats_label.setText(message)
 
-    def on_stats_finished(self):
+    def on_stats_finished(self, updated_count, error_count):
         self.update_stats_btn.setEnabled(True)
         self.load_more_btn.setEnabled(True)
         self.update_storage_stats()
         self.load_posts(self._last_posts, clear=True)
-        
-        QMessageBox.information(
-            self,
-            "Готово",
-            "Статистика успешно обновлена!\n\n"
-            "Актуальные данные загружены из ВКонтакте."
-        )
+
+        if updated_count == -1:
+            QMessageBox.information(self, "Готово", "В базе нет постов для обновления.")
+            return
+
+        if updated_count == 0 and error_count > 0:
+            QMessageBox.warning(
+                self,
+                "Статистика не обновлена",
+                "Не удалось получить данные из VK или сопоставить их с записями в базе.\n\n"
+                f"Записано в БД: {updated_count}, проблемных постов: {error_count}.\n\n"
+                "Проверьте токен, ссылку на ту же группу, что при загрузке, и лог приложения.",
+            )
+        elif updated_count == 0:
+            QMessageBox.information(
+                self,
+                "Готово",
+                "Счётчики не изменились: либо они уже совпадают с VK, либо посты из архива "
+                "не вошли в последние ~4000 записей на стене (тогда сделайте обычную «Загрузку» "
+                "с большим числом постов).",
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Готово",
+                f"Обновлено записей в базе: {updated_count}.\n"
+                f"Без изменений или с ошибкой: {error_count}.",
+            )
 
     def on_stats_error(self, error_msg):
         self.update_stats_btn.setEnabled(True)

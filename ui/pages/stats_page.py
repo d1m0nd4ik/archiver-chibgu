@@ -47,7 +47,7 @@ class StatsPage(QWidget):
 
         controls_layout.addWidget(QLabel("Метрика: "), 0, 2)
         self.metric_combo = QComboBox()
-        self.metric_combo.addItems(["Лайки", "Комментарии", "Репосты"])  # Убрали "Просмотры"
+        self.metric_combo.addItems(["Лайки", "Комментарии", "Репосты"])
         self.metric_combo.setCurrentText("Лайки")
         self.metric_combo.setStyleSheet(self.styles['input'])
         controls_layout.addWidget(self.metric_combo, 0, 3)
@@ -133,8 +133,8 @@ class StatsPage(QWidget):
         return self.analyzer.period_calc.get_period_range(period)
 
     def _metric_display_to_key(self, display_name):
-        mapping = {'Лайки': 'likes', 'Комментарии': 'comments', 'Репосты': 'shares', 'Просмотры': 'views'}
-        return mapping.get(display_name, 'views')
+        mapping = {'Лайки': 'likes', 'Комментарии': 'comments', 'Репосты': 'shares'}
+        return mapping.get(display_name, 'likes')
 
     def refresh_statistics(self):
         """Безопасное обновление данных с обработкой ошибок"""
@@ -166,7 +166,6 @@ class StatsPage(QWidget):
         lines = []
         for idx, post in enumerate(posts, start=1):
             lines.append(f"{idx}. ID поста {post.get('post_id')} | {post.get('date')}")
-            # Убрали просмотры, оставили только лайки, комментарии, репосты
             lines.append(f"   Лайки: {post.get('likes')}  Комментарии: {post.get('comments')}   Репосты: {post.get('shares')}")
             lines.append(f"   Текст: {post.get('text')}")
             lines.append(" ")

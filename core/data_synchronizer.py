@@ -128,10 +128,8 @@ class DataSynchronizer:
                 likes = post.get('likes', {}).get('count', 0)
                 comments = post.get('comments', {}).get('count', 0)
                 reposts = post.get('reposts', {}).get('count', 0)
-                views = post.get('views', {}).get('count', 0)
-                
-                # Сохраняем в БД
-                return self.db.update_post_stats(original_post_id, likes, comments, reposts, views)
+
+                return self.db.update_post_stats(original_post_id, likes, comments, reposts)
         
         except Exception as e:
             logger.error(f"Error updating post {original_post_id} statistics: {e}")
@@ -197,21 +195,17 @@ class DataSynchronizer:
             'total_likes': 0,
             'total_comments': 0,
             'total_shares': 0,
-            'total_views': 0,
             'avg_likes': 0,
-            'avg_views': 0
         }
         
         stats_db = self.db.get_aggregated_stats(start_str, end_str)
         stats['total_likes'] = stats_db['total_likes']
         stats['total_comments'] = stats_db['total_comments']
         stats['total_shares'] = stats_db['total_shares']
-        stats['total_views'] = stats_db['total_views']
         stats['total_posts'] = stats_db['total_posts']
 
         if stats['total_posts'] > 0:
             stats['avg_likes'] = stats['total_likes'] / stats['total_posts']
-            stats['avg_views'] = stats['total_views'] / stats['total_posts']
         
         return stats
     
@@ -278,8 +272,7 @@ class DataSynchronizer:
                 # Рассчитываем статистику за последние периоды
                 for period_type in ['day', 'week', 'month', 'year']:
                     period_stats = self.calculate_period_statistics(period_type)
-                    logger.info(f"[Sync] {period_type.upper()}: {period_stats['total_posts']} постов, "
-                          f"{period_stats['total_views']} просмотров")
+                    logger.info(f"[Sync] {period_type.upper()}: {period_stats['total_posts']} постов")
                 
                 logger.info(f"[Sync] Синхронизация завершена: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 
