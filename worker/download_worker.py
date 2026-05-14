@@ -186,7 +186,17 @@ class DownloadWorker(QThread):
                             original_post_id=post_id, media_type=att_type,
                             media_key=media_key, media_path=media_path, file_size=size
                         )
-                        logger.info("Медиа добавлено к посту %d: %s", post_id, media_path)
+                        # ✅ НОВОЕ: Сохраняем статистику медиа (лайки/комменты поста привязываем к медиа)
+                        vk.db.save_media_statistics(
+                            post_id=post_id,
+                            media_key=media_key,
+                            media_type=att_type,
+                            date=date,
+                            likes=likes,
+                            comments=comments,
+                            shares=shares
+                        )
+                        logger.info("Медиа и его статистика добавлены к посту %d: %s", post_id, media_path)
 
             self.signals.progress.emit(f"Обработано: {processed}/{total}")
             vk.db.close()

@@ -259,3 +259,49 @@ class StatisticsExporter:
         except Exception as e:
             logger.error("Ошибка при удалении старых файлов: %s", e, exc_info=True)
         return removed_count
+    
+    def export_media_to_excel(self, media: List[Dict], filename: str = None) -> str:
+        if not OPENPYXL_AVAILABLE:
+            return self.export_media_to_csv(media, filename.replace('.xlsx', '.csv') if filename else None)
+        
+        if filename is None:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f'media_export_{timestamp}.xlsx'
+        
+        self._ensure_export_dir()
+        filepath = os.path.join(self.export_dir, filename)
+        try:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = 'Медиа'
+            
+            headers = ['ID поста', 'Ключ медиа', 'Тип', 'Лайки', 'Комментарии', 'Репосты', 'Дата']
+            ws.append(headers)
+            
+            header_fill = PatternFill(start_color='9C27B0', end_color='9C27B0', fill_type='solid')
+            header_font = Font(bold=True, color='FFFFFF')
+            for cell in ws[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+            
+            for m in media:
+                ws.append([
+                    m.get('post_id', ''), m.get('media_key', ''), m.get('media_type', ''),
+                    m.get('likes', 0), m.get('comments', 0), m.get('shares', 0), m.get('date', '')
+                ])
+            
+            for col, width in [('A', 12), ('B', 25), ('C', 10), ('D', 10), 
+                            ('E', 12), ('F', 10), ('G', 12)]:
+                ws.column_dimensions[col].width = width
+                
+            for row in ws.iter_rows(min_row=2, min_col=4, max_col=6):
+                for cell in row:
+                    cell.alignment = Alignment(horizontal='center')
+            
+            wb.save(filepath)
+            logger.info("Медиа экспортировано в %s", filepath)
+            return filepath
+        except Exception as e:
+            logger.error("Ошибка экспорта Excel: %s", e, exc_info=True)
+            return None

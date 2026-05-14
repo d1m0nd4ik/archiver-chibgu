@@ -1,170 +1,33 @@
 import datetime
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QFrame, QLabel, QGridLayout, QComboBox, 
-    QDateEdit, QPushButton, QTextEdit, QProgressBar, QMessageBox
+    QWidget, QVBoxLayout, QFrame, QLabel, QGridLayout, QComboBox,
+    QDateEdit, QPushButton, QTextEdit, QMessageBox
 )
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt
 from ui.styles import STYLES
+from core.database import Database
+from core.period_calculator import PeriodCalculator
+from core.statistics_exporter import StatisticsExporter
 from core.logging_config import logger
 
-class MediaStatsWorker(QThread):
-    """Воркер для сбора статистики медиа"""
-    progress = Signal(str)
-    finished = Signal()
-    error = Signal(str)
-    
-    def __init__(self, token, group_id, media_type='all'):
-        super().__init__()
-        self.token = token
-        self.group_id = group_id
-        self.media_type = media_type
-        
-    def run(self):
-        try:
-            import vk_api
-            from core.database import Database
-            
-            self.progress.emit("🔄 Инициализация VK API...")
-            vk_session = vk_api.VkApi(token=self.token)
-            vk = vk_session.get_api()
-            db = Database()
-            
-            self.progress.emit("📊 Загрузка списка медиа из базы...")
-            cursor = db._get_cursor()
-            
-            if self.media_type == 'all':
-                query = "SELECT media_key, media_type, media_path FROM attachments"
-                params = ()
-            else:
-                query = "SELECT media_key, media_type, media_path FROM attachments WHERE media_type = ?"
-                params = (self.media_type,)
-            
-            media_list = cursor.execute(query, params).fetchall()
-            total = len(media_list)
-            
-            if total == 0:
-                self.progress.emit("⚠️ Медиа не найдено")
-                return
-            
-            updated = 0
-            errors = 0
-            
-            self.progress.emit(f"🔍 Найдено {total} медиафайлов. Начинаем сбор статистики...")
-            
-            for idx, (media_key, media_type, media_path) in enumerate(media_list, 1):
-                try:
-                    # ПАРСИМ MEDIA_KEY
-                    # Формат: photo_457239050 или photo_-236813059_457239050
-                    parts = media_key.split('_')
-                    
-                    if media_type == 'photo':
-                        # Для фото
-                        if len(parts) >= 3 and parts[1].lstrip('-').isdigit():
-                            # Формат: photo_OWNER_ID_PHOTO_ID
-                            owner_id = parts[1]
-                            photo_id = parts[2]
-                        elif len(parts) >= 2:
-                            # Формат: photo_PHOTO_ID (нет owner_id)
-                            # ИСПОЛЬЗУЕМ ID ГРУППЫ КАК ВЛАДЕЛЬЦА (ОТРИЦАТЕЛЬНЫЙ)
-                            owner_id = str(self.group_id)
-                            photo_id = parts[1]
-                        else:
-                            errors += 1
-                            continue
-                        
-                        # ВАЖНО: Для группы owner_id должен быть отрицательным!
-                        # VK API требует формат: "owner_id_photo_id"
-                        photo_param = f"{owner_id}_{photo_id}"
-                        
-                        response = vk.photos.getById(
-                            photos=photo_param,
-                            v='5.199'
-                        )
-                        
-                        if response and len(response) > 0:
-                            photo = response[0]
-                            likes = photo.get('likes', {}).get('count', 0)
-                            comments = photo.get('comments', {}).get('count', 0)
-                            
-                            db.save_media_statistics(
-                                post_id=0,
-                                media_key=media_key,
-                                media_type=media_type,
-                                date=datetime.datetime.now().strftime('%Y-%m-%d'),
-                                likes=likes,
-                                comments=comments,
-                                shares=0,
-                            )
-                            updated += 1
-                        else:
-                            errors += 1
-                    
-                    elif media_type in ('video', 'clip'):
-                        # Для видео: video_OWNER_ID_VIDEO_ID
-                        if len(parts) >= 3:
-                            owner_id = parts[1]
-                            video_id = parts[2]
-                            
-                            video_param = f"{owner_id}_{video_id}"
-                            
-                            try:
-                                response = vk.video.getById(
-                                    videos=video_param,
-                                    v='5.199'
-                                )
-                                
-                                if response and len(response) > 0:
-                                    video = response[0]
-                                    likes = video.get('likes', {}).get('count', 0)
-                                    comments = video.get('comments', {}).get('count', 0)
-
-                                    db.save_media_statistics(
-                                        post_id=0,
-                                        media_key=media_key,
-                                        media_type=media_type,
-                                        date=datetime.datetime.now().strftime('%Y-%m-%d'),
-                                        likes=likes,
-                                        comments=comments,
-                                        shares=0,
-                                    )
-                                    updated += 1
-                                else:
-                                    errors += 1
-                            except vk_api.exceptions.ApiError as e:
-                                # Логируем детально, чтобы понять причину ошибки видео
-                                logger.error(f"Video API Error for key '{video_param}': {e}")
-                                errors += 1
-                        else:
-                            errors += 1
-                    
-                    if idx % 10 == 0:
-                        self.progress.emit(f"⏩ Обработано {idx}/{total}...")
-                        
-                except Exception as e:
-                    logger.error(f"Error processing {media_key}: {e}")
-                    errors += 1
-            
-            db.close()
-            self.progress.emit(f"✅ Готово! Обновлено: {updated}, Ошибок: {errors}")
-            self.finished.emit()
-            
-        except Exception as e:
-            self.error.emit(f"Ошибка: {str(e)}")
-
 class MediaStatsPage(QWidget):
-    """Страница статистики медиафайлов"""
+    """Страница статистики медиа (стиль идентичен StatsPage)"""
     def __init__(self, styles=None):
         super().__init__()
         self.styles = styles or STYLES.get_styles()
-        self.worker = None
+        self.db = Database()
+        self.exporter = StatisticsExporter()
+        self.period_calc = PeriodCalculator()
         self.init_ui()
-        
+        self.refresh_statistics()
+
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(20)
 
-        header = QLabel("📊 Статистика медиафайлов")
+        # Заголовок
+        header = QLabel("📊 Статистика медиа")
         text_color = '#000000' if STYLES._theme == 'light' else '#ffffff'
         header.setStyleSheet(f"color: {text_color}; font-size: 22px; font-weight: bold; padding: 10px 0;")
         self.header_label = header
@@ -176,178 +39,74 @@ class MediaStatsPage(QWidget):
         controls_layout = QGridLayout(controls_frame)
         controls_layout.setSpacing(16)
 
-        controls_layout.addWidget(QLabel("Тип медиа: "), 0, 0)
+        controls_layout.addWidget(QLabel("Период:"), 0, 0)
+        self.period_combo = QComboBox()
+        self.period_combo.addItems(["Час", "День", "Неделя", "Месяц", "Год", "Все время", "Свой диапазон"])
+        self.period_combo.setCurrentText("День")
+        self.period_combo.currentTextChanged.connect(self.on_period_changed)
+        self.period_combo.setStyleSheet(self.styles['input'])
+        controls_layout.addWidget(self.period_combo, 0, 1)
+
+        controls_layout.addWidget(QLabel("Тип медиа:"), 0, 2)
         self.media_type_combo = QComboBox()
         self.media_type_combo.addItems(["Все", "Фото", "Видео", "Клипы"])
         self.media_type_combo.setStyleSheet(self.styles['input'])
-        controls_layout.addWidget(self.media_type_combo, 0, 1)
+        controls_layout.addWidget(self.media_type_combo, 0, 3)
 
-        controls_layout.addWidget(QLabel("Сортировка: "), 0, 2)
-        self.sort_combo = QComboBox()
-        self.sort_combo.addItems(["По лайкам", "По комментариям", "По дате"])
-        self.sort_combo.setStyleSheet(self.styles['input'])
-        controls_layout.addWidget(self.sort_combo, 0, 3)
+        controls_layout.addWidget(QLabel("Метрика:"), 1, 0)
+        self.metric_combo = QComboBox()
+        self.metric_combo.addItems(["Лайки", "Комментарии", "Репосты"])
+        self.metric_combo.setCurrentText("Лайки")
+        self.metric_combo.setStyleSheet(self.styles['input'])
+        controls_layout.addWidget(self.metric_combo, 1, 1)
 
-        self.collect_stats_btn = QPushButton("🔄 Собрать статистику из VK")
-        self.collect_stats_btn.setStyleSheet(self.styles['button'])
-        self.collect_stats_btn.setMinimumHeight(45)
-        self.collect_stats_btn.clicked.connect(self.start_stats_collection)
-        controls_layout.addWidget(self.collect_stats_btn, 1, 0, 1, 4)
+        controls_layout.addWidget(QLabel("Дата от:"), 1, 2)
+        self.custom_start = QDateEdit()
+        self.custom_start.setCalendarPopup(True)
+        self.custom_start.setDate(datetime.datetime.now() - datetime.timedelta(days=7))
+        self.custom_start.setEnabled(False)
+        self.custom_start.setStyleSheet(self.styles['input'])
+        controls_layout.addWidget(self.custom_start, 1, 3)
+
+        controls_layout.addWidget(QLabel("Дата до:"), 2, 0)
+        self.custom_end = QDateEdit()
+        self.custom_end.setCalendarPopup(True)
+        self.custom_end.setDate(datetime.datetime.now())
+        self.custom_end.setEnabled(False)
+        self.custom_end.setStyleSheet(self.styles['input'])
+        controls_layout.addWidget(self.custom_end, 2, 1)
+
+        self.refresh_btn = QPushButton("🔄 Обновить статистику")
+        self.refresh_btn.setStyleSheet(self.styles['button'])
+        self.refresh_btn.clicked.connect(self.refresh_statistics)
+        controls_layout.addWidget(self.refresh_btn, 2, 2, 1, 2)
+
+        self.export_csv_btn = QPushButton("Экспорт CSV")
+        self.export_csv_btn.setStyleSheet(self.styles['button_secondary'])
+        self.export_csv_btn.clicked.connect(self.export_csv)
+        controls_layout.addWidget(self.export_csv_btn, 3, 0, 1, 2)
+
+        self.export_excel_btn = QPushButton("Экспорт Excel")
+        self.export_excel_btn.setStyleSheet(self.styles['button_secondary'])
+        self.export_excel_btn.clicked.connect(self.export_excel)
+        controls_layout.addWidget(self.export_excel_btn, 3, 2, 1, 2)
 
         layout.addWidget(controls_frame)
 
-        # Прогресс бар
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet(self.styles['progressbar'])
-        layout.addWidget(self.progress_bar)
-
-        # Статистика
-        self.stats_label = QLabel()
-        self.stats_label.setStyleSheet(f"color: {text_color}; font-size: 14px; padding: 10px;")
-        layout.addWidget(self.stats_label)
-
-        # Результаты
+        # Блок результатов
         self.results_text = QTextEdit()
         self.results_text.setReadOnly(True)
         self.results_text.setStyleSheet(self.styles['textedit'])
         self.results_text.setMinimumHeight(300)
-        layout.addWidget(self.results_text)
 
+        results_frame = QFrame()
+        results_frame.setStyleSheet(self.styles['frame'])
+        results_layout = QVBoxLayout(results_frame)
+        results_layout.addWidget(QLabel(" Топ медиафайлов"))
+        results_layout.addWidget(self.results_text)
+
+        layout.addWidget(results_frame)
         layout.addStretch()
-
-    def start_stats_collection(self):
-        """Запускает сбор статистики"""
-        from core.config_manager import load_env_settings
-        from core.url_parser import VKUrlParser
-        import vk_api
-        
-        settings = load_env_settings()
-        token = settings.get('token', '')
-        group_link = settings.get('group_link', '')
-        
-        if not token:
-            QMessageBox.warning(self, "Ошибка", "Не найден токен VK!")
-            return
-        
-        if not group_link:
-            QMessageBox.warning(self, "Ошибка", "Не найдена ссылка на группу!")
-            return
-        
-        media_type_map = {
-            "Все": "all",
-            "Фото": "photo",
-            "Видео": "video",
-            "Клипы": "clip"
-        }
-        media_type = media_type_map[self.media_type_combo.currentText()]
-        
-        try:
-            vk_session = vk_api.VkApi(token=token)
-            group_id = VKUrlParser.extract_id_from_url(group_link, vk_session)
-            if not group_id:
-                group_id = -abs(int(group_link))
-        except Exception as e:
-            QMessageBox.critical(self, "Ошибка", f"Не удалось определить ID группы: {e}")
-            return
-        
-        self.collect_stats_btn.setEnabled(False)
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)
-        
-        self.worker = MediaStatsWorker(token, group_id, media_type)
-        self.worker.progress.connect(self.on_progress)
-        self.worker.finished.connect(self.on_finished)
-        self.worker.error.connect(self.on_error)
-        self.worker.start()
-        
-    def on_progress(self, message):
-        self.stats_label.setText(message)
-        
-    def on_finished(self):
-        self.collect_stats_btn.setEnabled(True)
-        self.progress_bar.setVisible(False)
-        self.refresh_stats()
-        QMessageBox.information(self, "Готово", "Статистика медиа собрана!")
-        
-    def on_error(self, error_msg):
-        self.collect_stats_btn.setEnabled(True)
-        self.progress_bar.setVisible(False)
-        QMessageBox.critical(self, "Ошибка", error_msg)
-        
-    def refresh_stats(self):
-        """Обновляет отображение статистики"""
-        try:
-            from core.database import Database
-            db = Database()
-            cursor = db._get_cursor()
-            
-            media_type_map = {
-                "Все": "all",
-                "Фото": "photo",
-                "Видео": "video",
-                "Клипы": "clip"
-            }
-            selected_type = media_type_map[self.media_type_combo.currentText()]
-            
-            sort_map = {
-                "По лайкам": "likes",
-                "По комментариям": "comments",
-                "По дате": "date"
-            }
-            sort_by = sort_map[self.sort_combo.currentText()]
-            
-            if selected_type == "all":
-                query = f"""
-                    SELECT media_key, media_type, likes, comments, date
-                    FROM media_statistics
-                    ORDER BY {sort_by} DESC
-                    LIMIT 50
-                """
-                results = cursor.execute(query).fetchall()
-            else:
-                query = f"""
-                    SELECT media_key, media_type, likes, comments, date
-                    FROM media_statistics
-                    WHERE media_type = ?
-                    ORDER BY {sort_by} DESC
-                    LIMIT 50
-                """
-                results = cursor.execute(query, (selected_type,)).fetchall()
-            
-            db.close()
-            
-            output = []
-            output.append(f"📊 Статистика медиафайлов\n")
-            output.append(f"Всего записей: {len(results)}\n")
-            output.append("=" * 70 + "\n\n")
-            
-            total_likes = 0
-            total_comments = 0
-
-            for idx, (media_key, media_type, likes, comments, date) in enumerate(results, 1):
-                type_emoji = {"photo": "📷", "video": "🎬", "clip": "🎥"}.get(media_type, "📎")
-                
-                output.append(f"{idx}. {type_emoji} {media_key}\n")
-                output.append(f"   Тип: {media_type}\n")
-                output.append(f"   ❤️ Лайки: {likes}\n")
-                output.append(f"   💬 Комментарии: {comments}\n")
-                output.append(f"   📅 Дата: {date}\n")
-                output.append("\n")
-                
-                total_likes += likes or 0
-                total_comments += comments or 0
-
-            output.append("=" * 70 + "\n")
-            output.append(f"📈 Итого:\n")
-            output.append(f"   Всего лайков: {total_likes}\n")
-            output.append(f"   Всего комментариев: {total_comments}\n")
-            
-            self.results_text.setPlainText("".join(output))
-            
-        except Exception as e:
-            logger.error(f"Error refreshing stats: {e}")
-            self.results_text.setPlainText(f"Ошибка: {e}")
 
     def update_styles(self, styles):
         self.styles = styles
@@ -357,3 +116,149 @@ class MediaStatsPage(QWidget):
         self.header_label.setStyleSheet(f"color: {text_color}; font-size: 22px; font-weight: bold; padding: 10px 0;")
         self.setStyleSheet(f"background-color: {bg_color};")
         self.results_text.setStyleSheet(self.styles['textedit'])
+
+    def on_period_changed(self, value):
+        custom = value == "Свой диапазон"
+        self.custom_start.setEnabled(custom)
+        self.custom_end.setEnabled(custom)
+
+    def get_period_selection(self):
+        mapping = {
+            "Час": "hour", "День": "day", "Неделя": "week", 
+            "Месяц": "month", "Год": "year", "Все время": "all_time", 
+            "Свой диапазон": "custom"
+        }
+        return mapping.get(self.period_combo.currentText(), "day")
+
+    def get_date_range(self):
+        period = self.get_period_selection()
+        if period == "custom":
+            start = self.custom_start.date().toPython()
+            end = self.custom_end.date().toPython() + datetime.timedelta(days=1)
+            return start, end
+        return self.period_calc.get_period_range(period)
+
+    def _metric_display_to_key(self, display_name):
+        mapping = {'Лайки': 'likes', 'Комментарии': 'comments', 'Репосты': 'shares'}
+        return mapping.get(display_name, 'likes')
+
+    def _media_type_display_to_key(self, display_name):
+        mapping = {'Все': 'all', 'Фото': 'photo', 'Видео': 'video', 'Клипы': 'clip'}
+        return mapping.get(display_name, 'all')
+
+    def refresh_statistics(self):
+        try:
+            period_key = self.get_period_selection()
+            start_date, end_date = self.get_date_range()
+            metric_key = self._metric_display_to_key(self.metric_combo.currentText())
+            media_type_key = self._media_type_display_to_key(self.media_type_combo.currentText())
+
+            start_str = start_date.strftime('%Y-%m-%d')
+            end_str = end_date.strftime('%Y-%m-%d')
+
+            summary = self.db.get_media_stats_summary(start_str, end_str, media_type_key)
+            
+            # Формируем строку статуса
+            self.status_message = (
+                f"Период: {start_str} - {end_str} | "
+                f"Тип: {self.media_type_combo.currentText()} | "
+                f"Медиа: {summary['total_media']} | "
+                f"Лайков: {summary['total_likes']} | "
+                f"Комментариев: {summary['total_comments']}"
+            )
+
+            top_media = self.db.get_media_statistics_by_period(
+                start_str, end_str, media_type_key, metric_key, limit=20
+            )
+
+            self.results_text.setPlainText(self.format_media(top_media, metric_key))
+
+        except Exception as e:
+            logger.error(f"Media Stats refresh error: {e}", exc_info=True)
+            self.results_text.setPlainText(f"❌ Ошибка загрузки статистики:\n{e}")
+
+    def format_media(self, media_list, metric_key):
+        if not media_list:
+            return "Нет данных за выбранный период."
+        
+        lines = []
+        lines.append(f" Показано топ-{len(media_list)} по метрике: {self.metric_combo.currentText()}\n")
+        lines.append("=" * 70 + "\n")
+        
+        for idx, (post_id, media_key, media_type, likes, comments, shares, date) in enumerate(media_list, 1):
+            type_emoji = {"photo": "📷", "video": "🎬", "clip": "🎥"}.get(media_type, "")
+            lines.append(f"{idx}. {type_emoji} {media_key} (Пост #{post_id})")
+            lines.append(f"   Тип: {media_type} | Дата: {date}")
+            lines.append(f"   ❤️ Лайки: {likes} |  Комментарии: {comments} | 🔄 Репосты: {shares}")
+            lines.append("")
+            
+        return "\n".join(lines)
+
+    def export_csv(self):
+        try:
+            period_key = self.get_period_selection()
+            start_date, end_date = self.get_date_range()
+            metric_key = self._metric_display_to_key(self.metric_combo.currentText())
+            media_type_key = self._media_type_display_to_key(self.media_type_combo.currentText())
+            
+            start_str = start_date.strftime('%Y-%m-%d')
+            end_str = end_date.strftime('%Y-%m-%d')
+            
+            media_list = self.db.get_media_statistics_by_period(
+                start_str, end_str, media_type_key, metric_key, limit=200
+            )
+            
+            # Преобразуем в список словарей для экспортера
+            export_data = []
+            for post_id, media_key, media_type, likes, comments, shares, date in media_list:
+                export_data.append({
+                    'post_id': post_id,
+                    'media_key': media_key,
+                    'media_type': media_type,
+                    'likes': likes,
+                    'comments': comments,
+                    'shares': shares,
+                    'date': date
+                })
+            
+            filepath = self.exporter.export_media_to_csv(export_data)
+            if filepath:
+                QMessageBox.information(self, "Экспорт завершен", f"CSV файл сохранен:\n{filepath}")
+            else:
+                QMessageBox.warning(self, "Ошибка экспорта", "Не удалось сохранить CSV файл.")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось экспортировать данные:\n{e}")
+
+    def export_excel(self):
+        try:
+            period_key = self.get_period_selection()
+            start_date, end_date = self.get_date_range()
+            metric_key = self._metric_display_to_key(self.metric_combo.currentText())
+            media_type_key = self._media_type_display_to_key(self.media_type_combo.currentText())
+            
+            start_str = start_date.strftime('%Y-%m-%d')
+            end_str = end_date.strftime('%Y-%m-%d')
+            
+            media_list = self.db.get_media_statistics_by_period(
+                start_str, end_str, media_type_key, metric_key, limit=200
+            )
+            
+            export_data = []
+            for post_id, media_key, media_type, likes, comments, shares, date in media_list:
+                export_data.append({
+                    'post_id': post_id,
+                    'media_key': media_key,
+                    'media_type': media_type,
+                    'likes': likes,
+                    'comments': comments,
+                    'shares': shares,
+                    'date': date
+                })
+            
+            filepath = self.exporter.export_media_to_excel(export_data)
+            if filepath:
+                QMessageBox.information(self, "Экспорт завершен", f"Excel файл сохранен:\n{filepath}")
+            else:
+                QMessageBox.warning(self, "Ошибка экспорта", "Не удалось сохранить Excel файл.")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось экспортировать данные:\n{e}")

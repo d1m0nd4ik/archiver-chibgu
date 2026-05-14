@@ -368,8 +368,56 @@ class Database:
         except: 
             pass
 
-    # === СТАТИСТИКА ===
-    
+        # ===== НОВЫЕ МЕТОДЫ ДЛЯ СТАТИСТИКИ МЕДИА =====
+    def get_media_stats_summary(self, start_date, end_date, media_type=None):
+        try:
+            cursor = self._get_cursor()
+            query = """
+                SELECT COUNT(*), COALESCE(SUM(ms.likes), 0), COALESCE(SUM(ms.comments), 0), COALESCE(SUM(ms.shares), 0)
+                FROM media_statistics ms
+                JOIN posts p ON ms.post_id = p.original_post_id
+                WHERE p.date >= ? AND p.date <= ?
+            """
+            params = [start_date, end_date]
+            if media_type and media_type != 'all':
+                query += " AND ms.media_type = ?"
+                params.append(media_type)
+            
+            row = cursor.execute(query, params).fetchone()
+            return {
+                'total_media': row[0] or 0,
+                'total_likes': row[1] or 0,
+                'total_comments': row[2] or 0,
+                'total_shares': row[3] or 0
+            }
+        except Exception as e:
+            logger.error(f"DB Media Stats Summary Error: {e}")
+            return {'total_media': 0, 'total_likes': 0, 'total_comments': 0, 'total_shares': 0}
+
+    def get_media_statistics_by_period(self, start_date, end_date, media_type=None, metric='likes', limit=50):
+        try:
+            cursor = self._get_cursor()
+            # Важно: выбираем метрику именно из ms (media_statistics)
+            col = {'likes': 'ms.likes', 'comments': 'ms.comments', 'shares': 'ms.shares'}.get(metric, 'ms.likes')
+            
+            base_query = """
+                SELECT ms.post_id, ms.media_key, ms.media_type, ms.likes, ms.comments, ms.shares, ms.date
+                FROM media_statistics ms
+                JOIN posts p ON ms.post_id = p.original_post_id
+                WHERE p.date >= ? AND p.date <= ?
+            """
+            params = [start_date, end_date]
+            if media_type and media_type != 'all':
+                base_query += " AND ms.media_type = ?"
+                params.append(media_type)
+                
+            base_query += f" ORDER BY {col} DESC LIMIT ?"
+            params.append(limit)
+            
+            return cursor.execute(base_query, params).fetchall()
+        except Exception as e:
+            logger.error(f"DB Media Stats Query Error: {e}")
+            return []
 
     
     # === СТАТИСТИКА ===
@@ -541,3 +589,5 @@ class Database:
             return self._get_cursor().execute("SELECT COUNT(*) FROM posts WHERE original_post_id = ?", (original_post_id,)).fetchone()[0] > 0
         except Exception: 
             return False
+        
+    
