@@ -25,7 +25,7 @@ class StatsPage(QWidget):
         layout.setSpacing(20)
 
         # Заголовок
-        header = QLabel("Статистика архива")
+        header = QLabel("Статистика постов")
         text_color = '#000000' if STYLES._theme == 'light' else '#ffffff'
         header.setStyleSheet(f"color: {text_color}; font-size: 22px; font-weight: bold; padding: 10px 0;")
         self.header_label = header

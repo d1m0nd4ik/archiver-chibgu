@@ -54,7 +54,7 @@ class StoragePage(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
 
-        header = QLabel("📚 Хранилище постов")
+        header = QLabel("Хранилище постов")
         c = self._theme_colors()
         header.setStyleSheet(f"font-size: 24px; font-weight: 700; padding: 8px 2px 12px 2px; color: {c['title']};")
         self.header_label = header

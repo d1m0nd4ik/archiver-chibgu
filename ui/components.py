@@ -109,7 +109,7 @@ class HeaderWidget(QFrame):
         self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._set_logo_pixmap()
 
-        title_label = QLabel("VK Media Archiver Pro")
+        title_label = QLabel("VK Archiver CHIBGU")
         title_label.setStyleSheet(self._get_title_style())
 
         subtitle_label = QLabel("Профессиональный архиватор контента ВКонтакте")

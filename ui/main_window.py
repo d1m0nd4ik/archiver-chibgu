@@ -36,7 +36,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, saved_token=None, saved_group_link=None, saved_post_count=None, saved_theme='system'):
         super().__init__()
-        self.setWindowTitle("VK Media Archiver Pro")
+        self.setWindowTitle("VK Archiver CHIBGU")
         self.setWindowIcon(get_app_icon())
         self.setMinimumSize(1024, 700)
 

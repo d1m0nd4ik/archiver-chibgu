@@ -25,7 +25,7 @@ class AboutPage(QWidget):
         info_layout = QVBoxLayout(info_frame)
         info_layout.setSpacing(15)
 
-        self.name_label = QLabel("VK Media Archiver Pro")
+        self.name_label = QLabel("VK Archiver CHIBGU")
         self.name_label.setStyleSheet(f"color: {text_color}; font-size: 24px; font-weight: bold;")
         info_layout.addWidget(self.name_label)
 

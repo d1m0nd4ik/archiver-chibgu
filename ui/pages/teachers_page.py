@@ -23,7 +23,7 @@ class TeachersPage(QWidget):
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(20)
 
-        header = QLabel("Преподаватели и сотрудники")
+        header = QLabel("Преподаватели")
         text_color = '#000000' if STYLES._theme == 'light' else '#ffffff'
         header.setStyleSheet(f"color: {text_color}; font-size: 22px; font-weight: bold; padding: 10px 0;")
         self.header_label = header

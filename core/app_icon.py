@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QPixmap
 
-APP_DISPLAY_NAME = "VK Media Archiver Pro"
+APP_DISPLAY_NAME = "VK Archiver CHIBGU"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ASSETS_DIR = PROJECT_ROOT / "assets"
 

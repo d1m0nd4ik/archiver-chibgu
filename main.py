@@ -22,7 +22,7 @@ def main():
 
     ensure_app_icons()
     app = QApplication(sys.argv)
-    app.setApplicationName("VK Media Archiver Pro")
+    app.setApplicationName("VK Archiver CHIBGU")
     app.setOrganizationName("VK Archiver")
     app.setWindowIcon(get_app_icon())
 
