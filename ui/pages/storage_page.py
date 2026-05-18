@@ -10,7 +10,7 @@ from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from core.database import Database
 from core.logging_config import logger
-from ui.styles import STYLES
+from ui.styles import STYLES, apply_theme_to_page, get_theme_colors
 from worker.download_worker import WallStatsRefreshWorker
 from core.config_manager import load_env_settings
 
@@ -27,13 +27,18 @@ class StoragePage(QWidget):
         self.init_ui()
 
     def _theme_colors(self):
+        c = get_theme_colors()
         if STYLES._theme == 'light':
-            return {'title': '#111827', 'muted': '#6b7280', 'text': '#111827', 'tag': '#2f6fce',
-                    'card_bg': '#ffffff', 'card_border': '#d8dce5', 'separator': '#e5e7eb',
-                    'media_bg': '#f3f4f6', 'empty': '#9ca3af'}
-        return {'title': '#f3f4f6', 'muted': '#9aa4b2', 'text': '#e5e7eb', 'tag': '#6ea8ff',
-                'card_bg': '#262a32', 'card_border': '#3f4654', 'separator': '#3f4654',
-                'media_bg': '#16191f', 'empty': '#7b8594'}
+            return {
+                'title': c['text'], 'muted': c['text_muted'], 'text': c['text'], 'tag': '#2f6fce',
+                'card_bg': c['card'], 'card_border': c['separator'], 'separator': c['separator'],
+                'media_bg': c['input_bg'], 'empty': c['text_muted'],
+            }
+        return {
+            'title': c['text'], 'muted': c['text_muted'], 'text': c['text'], 'tag': '#6ea8ff',
+            'card_bg': c['card'], 'card_border': c['input_border'], 'separator': c['separator'],
+            'media_bg': '#16191f', 'empty': '#7b8594',
+        }
 
     def _post_card_style(self):
         c = self._theme_colors()
@@ -564,12 +569,14 @@ class StoragePage(QWidget):
 
     def update_styles(self, styles):
         self.styles = styles
-        text_color = '#000000' if STYLES._theme == 'light' else '#ffffff'
-        bg_color = '#f5f5f5' if STYLES._theme == 'light' else '#1e1e1e'
-        self.header_label.setStyleSheet(f"font-size: 24px; font-weight: 700; padding: 8px 2px 12px 2px; color: {text_color};")
-        self.setStyleSheet(f"background-color: {bg_color};")
-        self.load_more_btn.setStyleSheet(self.styles['button'])
-        self.update_stats_btn.setStyleSheet(self.styles['button_secondary'])
+        self._secondary_buttons = [self.update_stats_btn]
+        apply_theme_to_page(self, styles)
+        c = get_theme_colors()
+        self.header_label.setStyleSheet(
+            f"font-size: 24px; font-weight: 700; padding: 8px 2px 12px 2px; color: {c['text']};"
+        )
+        if self._last_posts:
+            self.load_posts(self._last_posts, clear=True)
 
     # ===== ОБНОВЛЕНИЕ СТАТИСТИКИ ИЗ VK =====
     def start_stats_update(self):
@@ -580,30 +587,35 @@ class StoragePage(QWidget):
             group_link = settings.get('group_link', '')
 
             win = self.window()
-            if hasattr(win, 'download_page'):
-                ui_token = win.download_page.token_input.text().strip()
-                ui_group = win.download_page.group_input.text().strip()
+            if hasattr(win, 'settings_page'):
+                ui_token = win.settings_page.token_input.text().strip()
+                ui_group = win.settings_page.group_input.text().strip()
                 if ui_token:
                     token = ui_token
                 if ui_group:
                     group_link = ui_group
-            
+
             if not token:
-                QMessageBox.warning(self, "Ошибка", "Не найден токен VK!\nПерейдите на страницу загрузки и введите токен.")
+                QMessageBox.warning(
+                    self, "Ошибка",
+                    "Не найден токен VK.\nОткройте «Настройки» и введите токен доступа.",
+                )
                 return
-            
+
             if not group_link:
-                QMessageBox.warning(self, "Ошибка", "Не найдена ссылка на группу!\nПерейдите на страницу загрузки и укажите группу.")
+                QMessageBox.warning(
+                    self, "Ошибка",
+                    "Не указано сообщество.\nОткройте «Настройки» и укажите ссылку или ID группы.",
+                )
                 return
             
             reply = QMessageBox.question(
                 self,
                 "Подтверждение",
-                "Обновить лайки, комментарии и репосты для постов архива?\n\n"
-                "Используется тот же запрос к стене VK (wall.get), что и при загрузке медиа — "
-                "пачками по 100 записей, без отдельного запроса на каждый пост.\n\n"
-                "Обновляются только посты, которые есть в базе и попадают в последние "
-                "≈4000 записей на стене сообщества.",
+                "Обновить лайки, комментарии и репосты для всех постов архива?\n\n"
+                "Сначала сверка со стеной сообщества (wall.get), затем для оставшихся — "
+                "точечный запрос wall.getById по ID поста.\n\n"
+                "Нужны тот же токен и та же группа, что при загрузке медиа.",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
@@ -631,38 +643,45 @@ class StoragePage(QWidget):
     def on_stats_progress(self, message):
         self.storage_stats_label.setText(message)
 
-    def on_stats_finished(self, updated_count, error_count):
+    def _reload_posts_from_db(self):
+        try:
+            db = Database()
+            posts = db.get_all_posts(limit=500)
+            db.close()
+            self.load_posts(posts, clear=True)
+        except Exception as e:
+            logger.error("Reload posts after stats update: %s", e)
+
+    def on_stats_finished(self, updated_count, not_found_count):
         self.update_stats_btn.setEnabled(True)
         self.load_more_btn.setEnabled(True)
         self.update_storage_stats()
-        self.load_posts(self._last_posts, clear=True)
+        self._reload_posts_from_db()
 
         if updated_count == -1:
             QMessageBox.information(self, "Готово", "В базе нет постов для обновления.")
             return
 
-        if updated_count == 0 and error_count > 0:
+        if updated_count == 0:
             QMessageBox.warning(
                 self,
                 "Статистика не обновлена",
-                "Не удалось получить данные из VK или сопоставить их с записями в базе.\n\n"
-                f"Записано в БД: {updated_count}, проблемных постов: {error_count}.\n\n"
+                "Не удалось получить данные из VK.\n\n"
+                f"Не найдено в VK: {not_found_count}.\n\n"
                 "Проверьте токен, ссылку на ту же группу, что при загрузке, и лог приложения.",
             )
-        elif updated_count == 0:
+        elif not_found_count > 0:
             QMessageBox.information(
                 self,
                 "Готово",
-                "Счётчики не изменились: либо они уже совпадают с VK, либо посты из архива "
-                "не вошли в последние ~4000 записей на стене (тогда сделайте обычную «Загрузку» "
-                "с большим числом постов).",
+                f"Обновлено постов: {updated_count}.\n"
+                f"Не найдено в VK (удалены или другая группа): {not_found_count}.",
             )
         else:
             QMessageBox.information(
                 self,
                 "Готово",
-                f"Обновлено записей в базе: {updated_count}.\n"
-                f"Без изменений или с ошибкой: {error_count}.",
+                f"Статистика обновлена для {updated_count} постов.",
             )
 
     def on_stats_error(self, error_msg):

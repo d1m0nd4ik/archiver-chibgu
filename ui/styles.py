@@ -27,17 +27,17 @@ def apply_dark_theme(app):
     app.setStyle("Fusion")
 
 def apply_light_theme(app):
-    """Применение светлой темы"""
+    """Применение мягкой светлой темы (без чистого белого)"""
     palette = QPalette()
-    palette.setColor(QPalette.Window, QColor(245, 245, 245))
-    palette.setColor(QPalette.WindowText, QColor(0, 0, 0))
-    palette.setColor(QPalette.Base, QColor(255, 255, 255))
-    palette.setColor(QPalette.AlternateBase, QColor(240, 240, 240))
-    palette.setColor(QPalette.ToolTipBase, QColor(255, 255, 255))
-    palette.setColor(QPalette.ToolTipText, QColor(0, 0, 0))
-    palette.setColor(QPalette.Text, QColor(0, 0, 0))
-    palette.setColor(QPalette.Button, QColor(240, 240, 240))
-    palette.setColor(QPalette.ButtonText, QColor(0, 0, 0))
+    palette.setColor(QPalette.Window, QColor(226, 229, 236))
+    palette.setColor(QPalette.WindowText, QColor(46, 52, 64))
+    palette.setColor(QPalette.Base, QColor(246, 247, 250))
+    palette.setColor(QPalette.AlternateBase, QColor(238, 240, 245))
+    palette.setColor(QPalette.ToolTipBase, QColor(244, 245, 248))
+    palette.setColor(QPalette.ToolTipText, QColor(46, 52, 64))
+    palette.setColor(QPalette.Text, QColor(46, 52, 64))
+    palette.setColor(QPalette.Button, QColor(238, 240, 245))
+    palette.setColor(QPalette.ButtonText, QColor(46, 52, 64))
     palette.setColor(QPalette.BrightText, QColor(255, 0, 0))
     palette.setColor(QPalette.Highlight, QColor(58, 123, 213))
     palette.setColor(QPalette.HighlightedText, QColor(255, 255, 255))
@@ -59,6 +59,31 @@ def apply_theme(app, theme_name='system'):
         apply_dark_theme(app)
     return effective_theme
 
+def get_theme_colors(theme=None):
+    """Цвета интерфейса для страниц и карточек."""
+    if (theme or STYLES._theme) == 'light':
+        return {
+            'page_bg': '#e2e5ec',
+            'content_bg': '#e8ebf1',
+            'card': '#eef0f5',
+            'input_bg': '#f6f7fa',
+            'input_border': '#c5cbd8',
+            'text': '#2e3440',
+            'text_muted': '#5c6478',
+            'separator': '#cdd3df',
+        }
+    return {
+        'page_bg': '#1e1e1e',
+        'content_bg': '#1e1e1e',
+        'card': '#262a32',
+        'input_bg': '#3c3c3c',
+        'input_border': '#555555',
+        'text': '#ffffff',
+        'text_muted': '#aaaaaa',
+        'separator': '#555555',
+    }
+
+
 # ============================================================================
 # СТИЛИ ДЛЯ ТЁМНОЙ ТЕМЫ
 # ============================================================================
@@ -76,6 +101,39 @@ DARK_STYLES = {
         }
         QLineEdit:focus { border: 2px solid #3a7bd5; }
         QLineEdit:disabled { background-color: #2a2a2a; color: #888888; border: 2px solid #444444; }
+    """,
+    'combo': """
+        QComboBox {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 2px solid #555555;
+            background-color: #3c3c3c;
+            color: #ffffff;
+            font-size: 13px;
+            min-height: 36px;
+        }
+        QComboBox:focus { border: 2px solid #3a7bd5; }
+        QComboBox:disabled { background-color: #2a2a2a; color: #888888; }
+        QComboBox::drop-down { border: none; width: 28px; }
+        QComboBox QAbstractItemView {
+            background-color: #3c3c3c;
+            color: #ffffff;
+            selection-background-color: #3a7bd5;
+            border: 1px solid #555555;
+        }
+    """,
+    'date': """
+        QDateEdit {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 2px solid #555555;
+            background-color: #3c3c3c;
+            color: #ffffff;
+            font-size: 13px;
+            min-height: 36px;
+        }
+        QDateEdit:focus { border: 2px solid #3a7bd5; }
+        QDateEdit:disabled { background-color: #2a2a2a; color: #888888; }
     """,
     'button': """
         QPushButton { 
@@ -164,15 +222,49 @@ LIGHT_STYLES = {
         QLineEdit {
             padding: 10px;
             border-radius: 6px;
-            border: 2px solid #999999;
-            background-color: #ffffff;
-            color: #000000;
+            border: 2px solid #c5cbd8;
+            background-color: #f6f7fa;
+            color: #2e3440;
             font-size: 13px;
             selection-background-color: #3a7bd5;
             min-height: 40px;
         }
         QLineEdit:focus { border: 2px solid #3a7bd5; }
-        QLineEdit:disabled { background-color: #f5f5f5; color: #999999; border: 2px solid #cccccc; }
+        QLineEdit:disabled { background-color: #e8ebf1; color: #8b93a3; border: 2px solid #d5dae3; }
+    """,
+    'combo': """
+        QComboBox {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 2px solid #c5cbd8;
+            background-color: #f6f7fa;
+            color: #2e3440;
+            font-size: 13px;
+            min-height: 36px;
+        }
+        QComboBox:focus { border: 2px solid #3a7bd5; }
+        QComboBox:disabled { background-color: #e8ebf1; color: #8b93a3; }
+        QComboBox::drop-down { border: none; width: 28px; }
+        QComboBox QAbstractItemView {
+            background-color: #f0f2f6;
+            color: #2e3440;
+            selection-background-color: #3a7bd5;
+            selection-color: #ffffff;
+            border: 1px solid #c5cbd8;
+        }
+    """,
+    'date': """
+        QDateEdit {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 2px solid #c5cbd8;
+            background-color: #f6f7fa;
+            color: #2e3440;
+            font-size: 13px;
+            min-height: 36px;
+        }
+        QDateEdit:focus { border: 2px solid #3a7bd5; }
+        QDateEdit:disabled { background-color: #e8ebf1; color: #8b93a3; }
     """,
     'button': """
         QPushButton { 
@@ -205,12 +297,12 @@ LIGHT_STYLES = {
     """,
     'textedit': """
         QTextEdit { 
-            background-color: #ffffff; 
-            color: #000000; 
+            background-color: #f6f7fa; 
+            color: #2e3440; 
             font-family: 'Consolas', 'Courier New', monospace; 
             font-size: 13px; 
             border-radius: 6px; 
-            border: 2px solid #999999;
+            border: 2px solid #c5cbd8;
             padding: 10px; 
             selection-background-color: #3a7bd5;
         }
@@ -218,37 +310,37 @@ LIGHT_STYLES = {
     """,
     'frame': """
         QFrame { 
-            background-color: #ffffff; 
+            background-color: #eef0f5; 
             border-radius: 14px; 
             padding: 15px;
-            border: 1px solid #d8dce5;
+            border: 1px solid #d0d5df;
         }
     """,
-    'label': "color: #000000; font-size: 13px; padding: 5px; ",
-    'label_title': "color: #000000; font-size: 18px; font-weight: bold; padding: 10px; ",
+    'label': "color: #2e3440; font-size: 13px; padding: 5px; ",
+    'label_title': "color: #2e3440; font-size: 18px; font-weight: bold; padding: 10px; ",
     'progressbar': """
         QProgressBar {
-            border: 2px solid #999999;
+            border: 2px solid #c5cbd8;
             border-radius: 6px;
-            background-color: #f0f0f0;
+            background-color: #e4e7ee;
             text-align: center;
-            color: #000000;
+            color: #2e3440;
             height: 25px;
         }
         QProgressBar::chunk { background-color: #3a7bd5; border-radius: 5px; }
     """,
-    'statusbar': "background-color: #f0f0f0; color: #000000; border-top: 2px solid #999999; ",
+    'statusbar': "background-color: #e4e7ee; color: #2e3440; border-top: 2px solid #cdd3df; ",
     'navigation': """
         QPushButton {
             background-color: transparent;
-            color: #000000;
+            color: #2e3440;
             border: 2px solid transparent;
             border-radius: 8px;
             padding: 12px 20px;
             text-align: left;
             font-size: 14px;
         }
-        QPushButton:hover { background-color: #e0e0e0; border: 2px solid #999999; }
+        QPushButton:hover { background-color: #dce1eb; border: 2px solid #c5cbd8; }
         QPushButton:checked { background-color: #3a7bd5; color: white; border: 2px solid #2c5aa0; }
     """
 }
@@ -290,6 +382,72 @@ def get_styles_for_theme(theme):
 def update_global_styles(theme):
     """Обновляет глобальные стили при смене темы"""
     STYLES.set_theme(theme)
+
+def apply_theme_to_page(page, styles=None):
+    """Обновляет все стандартные виджеты на странице после смены темы."""
+    from PySide6.QtWidgets import (
+        QFrame, QLineEdit, QTextEdit, QComboBox, QDateEdit, QPushButton, QLabel, QScrollArea,
+    )
+
+    styles = styles or STYLES.get_styles()
+    colors = get_theme_colors()
+    skip_frame_ids = set()
+    for scroll in page.findChildren(QScrollArea):
+        vp = scroll.viewport()
+        if vp:
+            skip_frame_ids.add(id(vp))
+
+    page.setStyleSheet(f"background-color: {colors['page_bg']};")
+
+    if hasattr(page, 'header_label'):
+        page.header_label.setStyleSheet(
+            f"color: {colors['text']}; font-size: 22px; font-weight: bold; padding: 10px 0;"
+        )
+
+    for frame in page.findChildren(QFrame):
+        if id(frame) in skip_frame_ids:
+            continue
+        ss = frame.styleSheet() or ''
+        if 'background-color: transparent' in ss:
+            continue
+        frame.setStyleSheet(styles['frame'])
+
+    combo_style = styles.get('combo', styles['input'])
+    date_style = styles.get('date', styles['input'])
+    for combo in page.findChildren(QComboBox):
+        combo.setStyleSheet(combo_style)
+    for date_edit in page.findChildren(QDateEdit):
+        date_edit.setStyleSheet(date_style)
+    for line_edit in page.findChildren(QLineEdit):
+        line_edit.setStyleSheet(styles['input'])
+    for text_edit in page.findChildren(QTextEdit):
+        text_edit.setStyleSheet(styles['textedit'])
+    if hasattr(page, 'progress_bar'):
+        page.progress_bar.setStyleSheet(styles['progressbar'])
+
+    secondary = set(getattr(page, '_secondary_buttons', []) or [])
+    for btn in page.findChildren(QPushButton):
+        if hasattr(page, 'theme_toggle_btn') and btn is page.theme_toggle_btn:
+            continue
+        if btn in secondary:
+            btn.setStyleSheet(styles['button_secondary'])
+        else:
+            btn.setStyleSheet(styles['button'])
+
+    skip_labels = set(getattr(page, '_theme_custom_labels', []) or [])
+    if hasattr(page, 'header_label'):
+        skip_labels.add(page.header_label)
+    if hasattr(page, 'theme_info_label'):
+        skip_labels.add(page.theme_info_label)
+
+    for label in page.findChildren(QLabel):
+        if label in skip_labels:
+            continue
+        if label is getattr(page, 'results_label', None):
+            label.setStyleSheet(styles.get('label_title', styles.get('label', '')))
+        elif isinstance(label.parent(), QFrame):
+            label.setStyleSheet(styles.get('label', ''))
+
 
 def apply_theme_dynamic(app, theme_name='system'):
     """Применяет тему и принудительно обновляет все виджеты"""

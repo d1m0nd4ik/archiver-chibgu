@@ -13,15 +13,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ui.main_window import MainWindow
 from ui.styles import apply_theme, STYLES, update_global_styles
 from core.config_manager import ensure_env_file, load_env_settings
+from core.app_icon import get_app_icon, ensure_app_icons
 
 def main():
     """Точка входа в приложение"""
     ensure_env_file()
     settings = load_env_settings()
 
+    ensure_app_icons()
     app = QApplication(sys.argv)
     app.setApplicationName("VK Media Archiver Pro")
     app.setOrganizationName("VK Archiver")
+    app.setWindowIcon(get_app_icon())
 
     saved_theme = settings.get('theme', 'system')
     effective_theme = apply_theme(app, saved_theme)

@@ -70,17 +70,14 @@ class VKDownloader:
         return posts
 
     def _resolve_group_id(self, identifier):
-        """Преобразует ссылку или ID в числовой ID группы"""
-        identifier = str(identifier).strip()
-        
-        if VKUrlParser.is_valid_vk_url(identifier):
-            return VKUrlParser.extract_id_from_url(identifier, self.vk_session)
-        
-        try:
-            gid = int(identifier)
-            return -abs(gid)
-        except ValueError:
-            return VKUrlParser.extract_id_from_url(f"https://vk.com/{identifier}", self.vk_session)
+        """Преобразует ссылку, screen_name или числовой ID в owner_id группы."""
+        group_id = VKUrlParser.resolve_group_id(identifier, self.vk_session)
+        if group_id is not None:
+            return group_id
+        raise ValueError(
+            f"Не удалось определить сообщество по «{identifier}».\n"
+            "Укажите ссылку (https://vk.ru/apng_archiver), короткое имя или числовой ID."
+        )
 
     def download_photo(self, url, post_id, photo_id):
         try:
@@ -102,78 +99,89 @@ class VKDownloader:
             url = f"{url}?access_key={access_key}"
         return url
 
-    def _resolve_video_url(self, video_owner_id, video_id, access_key=None, fallback_video_data=None):
-        """Получает рабочий URL видео через VK API"""
-        try:
-            videos_value = f"{video_owner_id}_{video_id}"
-            if access_key:
-                videos_value = f"{videos_value}_{access_key}"
+    _MP4_QUALITIES = (
+        "mp4_2160", "mp4_1440", "mp4_1080", "mp4_720", "mp4_480", "mp4_360", "mp4_240", "mp4_144",
+        "external", "src",
+    )
 
-            video_info = self.vk.video.get(
-                videos=videos_value,
-                count=1,
-                v=VK_API_VERSION
-            )
-            if 'items' in video_info and video_info['items']:
-                item = video_info['items'][0]
-                player_url = item.get('player')
-                page_url = item.get('url')
-                if player_url and "vk.com" in str(player_url):
-                    return player_url
-                if page_url and "vk.com" in str(page_url):
-                    return page_url
-
-                canonical_url = self._build_vk_video_page_url(video_owner_id, video_id, access_key=access_key)
-                if canonical_url:
-                    return canonical_url
-
-                files = item.get('files', {})
-                for quality in ('mp4_1080', 'mp4_720', 'mp4_480', 'mp4_360'):
-                    if files.get(quality):
-                        return files[quality]
-                        
-        except Exception as e:
-            logger.error("[VK API video.get Error] %s", e)
-
-        if fallback_video_data:
-            player_url = fallback_video_data.get('player')
-            page_url = fallback_video_data.get('url')
-            if player_url and "vk.com" in str(player_url):
-                return player_url
-            if page_url and "vk.com" in str(page_url):
-                return page_url
-
-            canonical_url = self._build_vk_video_page_url(video_owner_id, video_id, access_key=access_key)
-            if canonical_url:
-                return canonical_url
-                
-            files = fallback_video_data.get('files', {})
-            for quality in ('mp4_1080', 'mp4_720', 'mp4_480', 'mp4_360'):
-                if files.get(quality):
-                    return files[quality]
-
+    @classmethod
+    def _pick_direct_mp4(cls, video_item):
+        if not video_item or not isinstance(video_item, dict):
+            return None
+        files = video_item.get("files") or {}
+        if isinstance(files, dict):
+            for quality in cls._MP4_QUALITIES:
+                url = files.get(quality)
+                if url and str(url).startswith("http"):
+                    return str(url)
+        for key, url in video_item.items():
+            if isinstance(key, str) and key.startswith("mp4_") and url and str(url).startswith("http"):
+                return str(url)
         return None
+
+    def _fetch_video_item(self, video_owner_id, video_id, access_key=None):
+        videos_value = f"{video_owner_id}_{video_id}"
+        if access_key:
+            videos_value = f"{videos_value}_{access_key}"
+        video_info = self.vk.video.get(videos=videos_value, count=1, v=VK_API_VERSION)
+        items = video_info.get("items") if isinstance(video_info, dict) else video_info
+        if items:
+            return items[0]
+        return None
+
+    def _resolve_direct_mp4_url(self, video_owner_id, video_id, access_key=None, fallback_video_data=None):
+        """Прямая ссылка на MP4 из VK API — без cookies и yt-dlp."""
+        item = None
+        try:
+            item = self._fetch_video_item(video_owner_id, video_id, access_key=access_key)
+        except Exception as e:
+            logger.warning("[VK API video.get] %s", e)
+
+        direct = self._pick_direct_mp4(item)
+        if direct:
+            return direct
+        if fallback_video_data:
+            return self._pick_direct_mp4(fallback_video_data)
+        return None
+
+    def _resolve_page_url(self, video_owner_id, video_id, access_key=None, fallback_video_data=None):
+        """Страница VK для yt-dlp (если прямой MP4 недоступен)."""
+        return self._build_vk_video_page_url(video_owner_id, video_id, access_key=access_key)
 
     def download_video(self, video_owner_id, video_id, post_id, output_path=None, fallback_video_data=None, access_key=None):
         try:
-            video_url = self._resolve_video_url(
+            if not output_path:
+                output_path = os.path.join(f"{post_id}_{video_id}.mp4")
+
+            direct_url = self._resolve_direct_mp4_url(
                 video_owner_id, video_id, access_key=access_key, fallback_video_data=fallback_video_data
             )
-            if not video_url:
-                logger.info("[VK] Видео %d_%d не найдено", video_owner_id, video_id)
+            if direct_url:
+                logger.info("[VK] Прямая ссылка MP4 (video.get)")
+                if self.processor.download_file(direct_url, output_path):
+                    logger.info("[VK] Видео успешно: %s", output_path)
+                    return output_path
+                logger.warning("[VK] Прямое скачивание не удалось, пробуем yt-dlp")
+
+            page_url = self._resolve_page_url(
+                video_owner_id, video_id, access_key=access_key, fallback_video_data=fallback_video_data
+            )
+            if not page_url:
+                logger.info("[VK] Видео %s_%s не найдено", video_owner_id, video_id)
                 return None
-            
-            if not output_path:
-                filename = f"{post_id}_{video_id}.mp4"
-                output_path = os.path.join(filename)
-            
-            result = self.processor.download_video_raw(video_url, output_path)
-            
+
+            result = self.processor.download_video_raw(page_url, output_path)
+
             if result:
                 logger.info("[VK] Видео успешно: %s", result)
             else:
-                logger.error("[VK] Не удалось скачать видео: %s", video_url)
-            
+                logger.error(
+                    "[VK] Не удалось скачать видео: %s. "
+                    "Для закрытых роликов положите cookies.txt в папку проекта "
+                    "(экспорт с vk.com) или укажите VK_USE_BROWSER_COOKIES=1 в .env.",
+                    page_url,
+                )
+
             return result
         except Exception as e:
             logger.error("[VK] Video Download Error: %s", e)

@@ -9,7 +9,7 @@ from core.logging_config import logger
 
 # Попытка импорта Natasha
 try:
-    from natasha import Segmenter, MorphVocab, NewsMorphTagger, Doc
+    from natasha import Segmenter, NewsEmbedding, NewsMorphTagger, Doc
     NATASHA_AVAILABLE = True
 except ImportError:
     NATASHA_AVAILABLE = False
@@ -31,9 +31,9 @@ class NLPProcessor:
         # Инициализация Natasha
         if NATASHA_AVAILABLE:
             try:
+                emb = NewsEmbedding()
                 self.segmenter = Segmenter()
-                self.morph_vocab = MorphVocab()
-                self.morph_tagger = NewsMorphTagger(self.morph_vocab)
+                self.morph_tagger = NewsMorphTagger(emb)
                 self.natasha_ready = True
             except Exception as e:
                 logger.error(f"Ошибка инициализации Natasha: {e}")
@@ -56,8 +56,7 @@ class NLPProcessor:
         for token in doc.tokens:
             # Берем только существительные и прилагательные
             if token.pos in ('NOUN', 'ADJ'):
-                token.lemmatize(self.morph_vocab)
-                lemma = token.lemma.lower().replace('ё', 'е')
+                lemma = (token.lemma or token.text).lower().replace('ё', 'е')
                 if len(lemma) >= MIN_WORD_LENGTH and not lemma.isdigit() and lemma not in STOP_WORDS:
                     keywords.append(lemma)
         return keywords

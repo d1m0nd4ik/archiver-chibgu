@@ -6,10 +6,12 @@ from PySide6.QtWidgets import (
     QDialog, QSlider, QStackedLayout, QDateEdit, QCheckBox
 )
 from PySide6.QtCore import Qt, QTimer, Signal, QUrl
+from core.employee_tagger import ensure_employees_loaded
+from core.app_icon import get_app_icon
 from PySide6.QtGui import QFont, QPixmap, QGuiApplication, QImage
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
-from ui.styles import STYLES, update_global_styles
+from ui.styles import STYLES, update_global_styles, apply_theme_dynamic, get_theme_colors
 from worker.download_worker import DownloadWorker
 from core.database import Database
 from core.config_manager import save_env_settings, get_system_theme
@@ -28,7 +30,6 @@ from .pages.storage_page import StoragePage
 from .pages.settings_page import SettingsPage
 from .pages.about_page import AboutPage
 from .pages.teachers_page import TeachersPage
-from .pages.media_stats_page import MediaStatsPage
 
 class MainWindow(QMainWindow):
     """Главное окно приложения"""
@@ -36,6 +37,7 @@ class MainWindow(QMainWindow):
     def __init__(self, saved_token=None, saved_group_link=None, saved_post_count=None, saved_theme='system'):
         super().__init__()
         self.setWindowTitle("VK Media Archiver Pro")
+        self.setWindowIcon(get_app_icon())
         self.setMinimumSize(1024, 700)
 
         self.worker = None
@@ -58,6 +60,8 @@ class MainWindow(QMainWindow):
 
         self.timer.timeout.connect(self.update_stats)
         self.timer.start(5000)
+
+        QTimer.singleShot(300, self._ensure_employees_in_background)
 
     def _fit_to_screen(self):
         """Подгоняет размер окна под монитор пользователя."""
@@ -94,9 +98,10 @@ class MainWindow(QMainWindow):
         self.sidebar = SidebarWidget(self.current_theme)
         content_layout.addWidget(self.sidebar)
 
-        content_frame = QFrame()
-        content_frame.setStyleSheet(f"background-color: {'#f5f5f5' if self.current_theme == 'light' else '#1e1e1e'};")
-        content_layout_main = QVBoxLayout(content_frame)
+        self.content_frame = QFrame()
+        c = get_theme_colors(self.current_theme)
+        self.content_frame.setStyleSheet(f"background-color: {c['content_bg']};")
+        content_layout_main = QVBoxLayout(self.content_frame)
         content_layout_main.setContentsMargins(0, 0, 0, 0)
 
         self.stacked_widget = QStackedWidget()
@@ -105,23 +110,23 @@ class MainWindow(QMainWindow):
         self.download_page = DownloadPage(self.styles)       # 0
         self.search_page = SearchPage(self.styles)           # 1
         self.stats_page = StatsPage(self.styles)             # 2
-        self.storage_page = StoragePage(self.styles)        # 3
-        self.media_stats_page = MediaStatsPage(self.styles)         
+        self.storage_page = StoragePage(self.styles)        # 3    
         self.teachers_page = TeachersPage(self.styles)       # 4
-        self.settings_page = SettingsPage(self.saved_theme, self.styles)  # 5
+        self.settings_page = SettingsPage(
+            self.current_theme, self.saved_token, self.saved_group_link, self.styles
+        )  # 5
         self.about_page = AboutPage(self.styles)             # 6
 
         self.stacked_widget.addWidget(self.download_page)
         self.stacked_widget.addWidget(self.search_page)
         self.stacked_widget.addWidget(self.stats_page)
         self.stacked_widget.addWidget(self.storage_page)
-        self.stacked_widget.addWidget(self.media_stats_page)
         self.stacked_widget.addWidget(self.teachers_page)
         self.stacked_widget.addWidget(self.settings_page)
         self.stacked_widget.addWidget(self.about_page)
 
         content_layout_main.addWidget(self.stacked_widget)
-        content_layout.addWidget(content_frame)
+        content_layout.addWidget(self.content_frame)
         main_layout.addWidget(content_container)
 
         self.status_bar = QStatusBar()
@@ -133,7 +138,6 @@ class MainWindow(QMainWindow):
         self.sidebar.buttons['search'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['stats'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['storage'].clicked_signal.connect(self.switch_page)
-        self.sidebar.buttons['media_stats'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['teachers'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['settings'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['about'].clicked_signal.connect(self.switch_page)
@@ -144,9 +148,6 @@ class MainWindow(QMainWindow):
         self.search_page.clear_btn.clicked.connect(self.clear_results)
         self.search_page.search_input.returnPressed.connect(self.search_posts)
 
-        self.download_page.token_input.setText(self.saved_token)
-        self.download_page.group_input.setText(self.saved_group_link)
-       
     def switch_page(self, page_name):
         for btn in self.sidebar.buttons.values():
             btn.setChecked(False)
@@ -158,10 +159,9 @@ class MainWindow(QMainWindow):
         'search': 1, 
         'stats': 2, 
         'storage': 3, 
-        'media_stats': 4,
-        'teachers' : 5,
-        'settings': 6, 
-        'about': 7
+        'teachers' : 4,
+        'settings': 5, 
+        'about': 6
     }
         if page_name in pages:
             self.stacked_widget.setCurrentIndex(pages[page_name])
@@ -186,14 +186,48 @@ class MainWindow(QMainWindow):
         logger.info("Приложение закрыто пользователем")
         event.accept()
 
+    def apply_theme(self, theme):
+        """Применяет тему ко всему окну (вызывается после сохранения настроек)."""
+        app = QApplication.instance()
+        effective = apply_theme_dynamic(app, theme)
+        self.current_theme = effective
+        self.saved_theme = effective
+        self.styles = STYLES.get_styles()
+
+        self.header.update_theme(effective)
+        self.sidebar.update_theme(effective)
+        c = get_theme_colors(effective)
+        self.content_frame.setStyleSheet(f"background-color: {c['content_bg']};")
+        self.status_bar.setStyleSheet(self.styles['statusbar'])
+
+        for page in (
+            self.download_page,
+            self.search_page,
+            self.stats_page,
+            self.storage_page,
+            self.teachers_page,
+            self.settings_page,
+            self.about_page,
+        ):
+            if hasattr(page, 'update_styles'):
+                page.update_styles(self.styles)
+
+        self.settings_page.selected_theme = effective
+        if self.stacked_widget.currentWidget() == self.storage_page and self.storage_page._last_posts:
+            self.storage_page.load_posts(self.storage_page._last_posts, clear=True)
+        self.update()
+
     def save_settings(self):
-        token = self.download_page.token_input.text().strip()
-        group_link = self.download_page.group_input.text().strip()
-        theme = self.settings_page.get_theme()
-        
-        # Третий параметр (count) передаем пустым, так как скачивание теперь по датам
-        if token or group_link or theme:
-            save_env_settings(token, group_link, '', theme)
+        token = self.settings_page.token_input.text().strip()
+        group_link = self.settings_page.group_input.text().strip()
+        if token or group_link or self.current_theme:
+            save_env_settings(token, group_link, '', self.current_theme)
+
+    def _ensure_employees_in_background(self):
+        try:
+            ensure_employees_loaded()
+        except Exception as e:
+            logger.warning("Фоновая загрузка сотрудников: %s", e)
 
     def update_stats(self):
         """Безопасное обновление статуса"""
@@ -218,31 +252,40 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(message)
 
     def start_download(self):
-        token = self.download_page.token_input.text().strip()
-        group_input = self.download_page.group_input.text().strip()
+        token = self.settings_page.token_input.text().strip()
+        group_input = self.settings_page.group_input.text().strip()
 
         self.save_settings()
 
         if not token:
-            QMessageBox.warning(self, "Ошибка", "Введите Access Token!")
+            QMessageBox.warning(
+                self, "Ошибка",
+                "Не указан токен VK.\n\nОткройте «Настройки» и введите токен доступа.",
+            )
+            self.switch_page('settings')
             return
         if not group_input:
-            QMessageBox.warning(self, "Ошибка", "Введите ссылку на сообщество!")
+            QMessageBox.warning(
+                self, "Ошибка",
+                "Не указано сообщество.\n\nОткройте «Настройки» и укажите ссылку или ID группы.",
+            )
+            self.switch_page('settings')
             return
 
-        self.download_page.progress_bar.setVisible(True)
+        self.download_page.reset_progress()
         self.download_page.download_btn.setEnabled(False)
         self.log("🔄 Загрузка началась...")
 
         # count больше не нужен, используем фиксированный размер порции 100 для API
         self.worker = DownloadWorker(token, group_input, count=100)
         self.worker.signals.progress.connect(self.log)
+        self.worker.signals.progress_value.connect(self.download_page.set_progress)
         self.worker.signals.finished.connect(self.download_finished)
         self.worker.signals.error.connect(self.download_error)
         self.worker.start()
 
     def download_finished(self):
-        self.download_page.progress_bar.setVisible(False)
+        self.download_page.set_progress(100)
         self.download_page.download_btn.setEnabled(True)
         self.log("Загрузка завершена")
         self.update_stats()
@@ -254,7 +297,7 @@ class MainWindow(QMainWindow):
         )
 
     def download_error(self, error_msg):
-        self.download_page.progress_bar.setVisible(False)
+        self.download_page.reset_progress()
         self.download_page.download_btn.setEnabled(True)
         self.log(f"Ошибка: {error_msg}")
         QMessageBox.critical(self, "Ошибка", f"Произошла ошибка:\n\n{error_msg}")

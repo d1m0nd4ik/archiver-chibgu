@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QDateEdit, QPushButton, QTextEdit, QMessageBox
 )
 from PySide6.QtCore import Qt
-from ui.styles import STYLES
+from ui.styles import STYLES, apply_theme_to_page
 from core.statistics_analyzer import StatisticsAnalyzer
 from core.statistics_exporter import StatisticsExporter
 from core.logging_config import logger
@@ -42,14 +42,14 @@ class StatsPage(QWidget):
         self.period_combo.addItems(["Час", "День", "Неделя", "Месяц", "Год", "Все время", "Свой диапазон"])
         self.period_combo.setCurrentText("День")
         self.period_combo.currentTextChanged.connect(self.on_period_changed)
-        self.period_combo.setStyleSheet(self.styles['input'])
+        self.period_combo.setStyleSheet(self.styles.get('combo', self.styles['input']))
         controls_layout.addWidget(self.period_combo, 0, 1)
 
         controls_layout.addWidget(QLabel("Метрика: "), 0, 2)
         self.metric_combo = QComboBox()
         self.metric_combo.addItems(["Лайки", "Комментарии", "Репосты"])
         self.metric_combo.setCurrentText("Лайки")
-        self.metric_combo.setStyleSheet(self.styles['input'])
+        self.metric_combo.setStyleSheet(self.styles.get('combo', self.styles['input']))
         controls_layout.addWidget(self.metric_combo, 0, 3)
 
         controls_layout.addWidget(QLabel("Дата от: "), 1, 0)
@@ -57,7 +57,7 @@ class StatsPage(QWidget):
         self.custom_start.setCalendarPopup(True)
         self.custom_start.setDate(datetime.datetime.now() - datetime.timedelta(days=30))
         self.custom_start.setEnabled(False)
-        self.custom_start.setStyleSheet(self.styles['input'])
+        self.custom_start.setStyleSheet(self.styles.get('date', self.styles['input']))
         controls_layout.addWidget(self.custom_start, 1, 1)
 
         controls_layout.addWidget(QLabel("Дата до: "), 1, 2)
@@ -65,7 +65,7 @@ class StatsPage(QWidget):
         self.custom_end.setCalendarPopup(True)
         self.custom_end.setDate(datetime.datetime.now())
         self.custom_end.setEnabled(False)
-        self.custom_end.setStyleSheet(self.styles['input'])
+        self.custom_end.setStyleSheet(self.styles.get('date', self.styles['input']))
         controls_layout.addWidget(self.custom_end, 1, 3)
 
         self.refresh_btn = QPushButton("Обновить статистику")
@@ -100,15 +100,11 @@ class StatsPage(QWidget):
         layout.addWidget(results_frame)
         layout.addStretch()
 
+        self._secondary_buttons = [self.export_csv_btn, self.export_excel_btn]
+
     def update_styles(self, styles):
-        """Динамическое обновление стилей при смене темы"""
         self.styles = styles
-        text_color = '#000000' if STYLES._theme == 'light' else '#ffffff'
-        bg_color = '#f5f5f5' if STYLES._theme == 'light' else '#1e1e1e'
-        
-        self.header_label.setStyleSheet(f"color: {text_color}; font-size: 22px; font-weight: bold; padding: 10px 0;")
-        self.setStyleSheet(f"background-color: {bg_color};")
-        self.top_posts_text.setStyleSheet(self.styles['textedit'])
+        apply_theme_to_page(self, styles)
 
     def on_period_changed(self, value):
         """Активирует/деактивирует поля кастомных дат"""

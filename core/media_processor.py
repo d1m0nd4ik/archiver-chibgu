@@ -5,6 +5,7 @@ import yt_dlp
 from PIL import Image
 from config.settings import DATA_DIR
 from core.logging_config import logger
+from core.vk_cookies import apply_cookie_strategy, iter_ytdlp_cookie_strategies
 
 class MediaProcessor:
 
@@ -32,10 +33,12 @@ class MediaProcessor:
                 return True
 
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             }
+            if 'vk.' in url or 'vkuseraudio' in url or 'mycdn' in url:
+                headers['Referer'] = 'https://vk.com/'
 
-            r = requests.get(url, stream=True, headers=headers, timeout=30)
+            r = requests.get(url, stream=True, headers=headers, timeout=120)
             r.raise_for_status()
 
             with open(path, 'wb') as f:
@@ -87,8 +90,7 @@ class MediaProcessor:
                     logger.info("[Video OK] Direct download: %s", output_path)
                     return output_path
 
-            # 2. Использование yt-dlp для получения видео
-            ydl_opts = {
+            base_ydl_opts = {
                 'format': 'best[ext=mp4]/best',
                 'outtmpl': output_path,
                 'quiet': True,
@@ -102,11 +104,30 @@ class MediaProcessor:
 
             logger.info("[yt-dlp] Downloading video to: %s", output_path)
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(input_url, download=True)
-                if not info:
-                    logger.error("[yt-dlp] Failed to get info")
-                    return None
+            last_error = None
+            info = None
+            for label, cookie_opts in iter_ytdlp_cookie_strategies():
+                ydl_opts = apply_cookie_strategy(base_ydl_opts, cookie_opts)
+                try:
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(input_url, download=True)
+                    if info:
+                        if label != "none":
+                            logger.info("[yt-dlp] Успех с cookies: %s", label)
+                        break
+                except Exception as e:
+                    last_error = e
+                    err = str(e).lower()
+                    if label == "none":
+                        logger.debug("[yt-dlp] без cookies: %s", e)
+                    elif "dpapi" in err or "cookie" in err or "firefox" in err:
+                        logger.debug("[yt-dlp] cookies %s: %s", label, e)
+                    else:
+                        logger.warning("[yt-dlp] %s: %s", label, e)
+
+            if not info:
+                logger.error("[yt-dlp] Не удалось скачать: %s", last_error)
+                return None
 
             # Проверка, создался ли файл (yt-dlp может добавить расширение)
             if os.path.exists(output_path):

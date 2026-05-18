@@ -1,32 +1,69 @@
-# Секреты и конфигурация
+# --- Секреты и локальная конфигурация ---
 .env
-*.key
-*.pem
+.env.*
+!.env.example
 
-# База данных и архивы
+# --- Данные приложения (не коммитить) ---
 *.db
-Archive.db
+*.db-shm
+*.db-wal
+Archive.db*
 Exports_data/
 exports/
-ffmpeg/
-# Куки и списки сотрудников
+vk_archive_data/
+
+# --- Cookies и экспорт сессий VK (чувствительные данные) ---
+cookies.txt
 cookies*.txt
 coockie*.txt
+*cookies*.txt
 
-# Python / IDE / Venv
+# --- Логи и временные файлы ---
+*.log
+logs/
+*.tmp
+*.temp
+.cache/
+
+# --- Python ---
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 *.pyo
+.Python
 .venv/
-.vscode/
-.idea/
+venv/
+env/
+ENV/
+*.egg
 *.egg-info/
+.eggs/
 dist/
 build/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
 
+# --- IDE / редактор ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 
-# Система
+# --- Системные файлы ---
 .DS_Store
 Thumbs.db
-Archive.db-shm
-Archive.db-wal
+desktop.ini
+
+# --- Локальные бинарники (FFmpeg кладут сами) ---
+ffmpeg/
+ffmpeg.exe
+
+# --- Сгенерированные иконки (исходники PNG в assets/ остаются в git) ---
+# при необходимости раскомментируйте:
+# assets/*.ico

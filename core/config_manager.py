@@ -15,8 +15,12 @@ VK_TOKEN=
 VK_GROUP_LINK=
 # Количество постов на запрос (по умолчанию 20)
 POST_COUNT=20
-# Тема приложения (light, dark)
+# Тема приложения (light, dark, system)
 APP_THEME=dark
+# Файл cookies для yt-dlp (необязательно): cookies.txt
+# VK_COOKIES_FILE=cookies.txt
+# Браузеры для авто-чтения cookies: edge,chrome,firefox
+# VK_COOKIES_BROWSER=edge,chrome,firefox
 """
         with open(ENV_FILE, 'w', encoding='utf-8') as f:
             f.write(env_content)

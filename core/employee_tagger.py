@@ -7,7 +7,7 @@ from core.database import Database
 from core.name_normalizer import normalize_and_reorder
 
 try:
-    from natasha import Segmenter, MorphVocab, NewsEmbedding, NewsMorphTagger, NewsNERTagger, Doc
+    from natasha import Segmenter, NewsEmbedding, NewsMorphTagger, NewsNERTagger, Doc
     NATASHA_AVAILABLE = True
 except ImportError:
     NATASHA_AVAILABLE = False
@@ -49,11 +49,21 @@ def sync_employees_to_db(db: Database = None, url: str = 'https://bgu-chita.ru/s
     try:
         db = db or Database()
         employees = fetch_employees_from_url(url)
-        if employees: db.update_employees(employees, source_url=url)
+        if employees:
+            if not db.update_employees(employees, source_url=url):
+                logger.warning("Не удалось сохранить список сотрудников в БД")
         return employees
     except Exception as e:
         logger.error(f"Sync error: {e}")
         return []
+
+def ensure_employees_loaded(db: Database = None, force_sync: bool = False) -> bool:
+    """Загружает сотрудников из БД; при пустой таблице — с сайта вуза."""
+    db = db or Database()
+    if not force_sync and db.get_all_employees():
+        return True
+    employees = sync_employees_to_db(db)
+    return bool(employees) or bool(db.get_all_employees())
 
 class EmployeeTagger:
     def __init__(self, db: Database = None, refresh_on_init: bool = True):
@@ -67,14 +77,23 @@ class EmployeeTagger:
                 self.morph_tagger = NewsMorphTagger(emb)
                 self.ner_tagger = NewsNERTagger(emb)
                 self.natasha_ready = True
-            except Exception: pass
+            except Exception as e:
+                logger.warning("Natasha NER недоступна, используется поиск по ФИО: %s", e)
 
         self.profiles = []
         self.name_index = {}
-        if refresh_on_init:
-            try: sync_employees_to_db(self.db)
-            except Exception: pass
         self._load_db()
+        if refresh_on_init or not self.profiles:
+            try:
+                ensure_employees_loaded(self.db, force_sync=refresh_on_init)
+            except Exception as e:
+                logger.error("Ошибка загрузки сотрудников: %s", e)
+            self._load_db()
+        if not self.profiles:
+            logger.warning(
+                "Список преподавателей пуст — теги ФИО в постах не будут добавляться. "
+                "Проверьте интернет и страницу https://bgu-chita.ru/sveden/employees"
+            )
 
     def _load_db(self):
         self.profiles = []

@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTextEdit
-from ui.styles import STYLES
+from ui.styles import STYLES, apply_theme_to_page
 
 class SearchPage(QWidget):
     """Страница поиска"""
@@ -49,12 +49,10 @@ class SearchPage(QWidget):
         self.results_text.setStyleSheet(self.styles['textedit'])
         layout.addWidget(self.results_text)
 
+        self._secondary_buttons = [self.clear_btn]
+
     def update_styles(self, styles):
         self.styles = styles
-        text_color = '#000000' if STYLES._theme == 'light' else '#ffffff'
-        bg_color = '#f5f5f5' if STYLES._theme == 'light' else '#1e1e1e'
-
-        self.header_label.setStyleSheet(f"color: {text_color}; font-size: 22px; font-weight: bold; padding: 10px 0;")
-        self.setStyleSheet(f"background-color: {bg_color};")
+        apply_theme_to_page(self, styles)
 
 

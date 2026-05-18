@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QPushButton, QFrame, QLabel, QHBoxLayout, QVBoxLayout
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, Qt
 from ui.styles import STYLES
+from core.app_icon import get_logo_pixmap
 
 class NavigationButton(QPushButton):
     """Кнопка навигации"""
@@ -103,8 +104,10 @@ class HeaderWidget(QFrame):
         layout.setContentsMargins(20, 10, 20, 10)
 
         title_layout = QHBoxLayout()
-        logo_label = QLabel("VK")
-        logo_label.setStyleSheet("font-size: 32px;")
+        self.logo_label = QLabel()
+        self.logo_label.setFixedSize(48, 48)
+        self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._set_logo_pixmap()
 
         title_label = QLabel("VK Media Archiver Pro")
         title_label.setStyleSheet(self._get_title_style())
@@ -112,7 +115,7 @@ class HeaderWidget(QFrame):
         subtitle_label = QLabel("Профессиональный архиватор контента ВКонтакте")
         subtitle_label.setStyleSheet(self._get_subtitle_style())
 
-        title_layout.addWidget(logo_label)
+        title_layout.addWidget(self.logo_label)
         title_layout.addWidget(title_label)
         title_layout.addStretch()
 
@@ -131,8 +134,15 @@ class HeaderWidget(QFrame):
         else:
             return "color: #888888; font-size: 12px;"
 
+    def _set_logo_pixmap(self):
+        pixmap = get_logo_pixmap(48, self.theme)
+        if not pixmap.isNull():
+            self.logo_label.setPixmap(pixmap)
+            self.logo_label.setText("")
+
     def update_theme(self, theme):
         self.update_style(theme)
+        self._set_logo_pixmap()
         for i in range(self.layout().count()):
             item = self.layout().itemAt(i)
             if item and item.layout():
@@ -188,8 +198,7 @@ class SidebarWidget(QFrame):
         self.buttons['download'] = NavigationButton("", "Загрузка контента", "download", self.theme)
         self.buttons['search'] = NavigationButton("", "Поиск в архиве", "search", self.theme)
         self.buttons['stats'] = NavigationButton("", "Статистика постов", "stats", self.theme)
-        self.buttons['storage'] = NavigationButton("", "Хранилище медиа", "storage", self.theme)
-        self.buttons['media_stats'] = NavigationButton("", "Статистика медиа", "media_stats", self.theme)
+        self.buttons['storage'] = NavigationButton("", "Хранилище постов", "storage", self.theme)
         self.buttons['teachers'] = NavigationButton("", "Преподаватели в постах", "teachers", self.theme)
 
         for btn in self.buttons.values():
@@ -205,7 +214,7 @@ class SidebarWidget(QFrame):
         self.buttons['about'] = NavigationButton("", "О программе", "about", self.theme)
 
         for btn in self.buttons.values():
-            if btn not in list(self.buttons.values())[:6]:
+            if btn not in list(self.buttons.values())[:5]:
                 layout.addWidget(btn)
 
         layout.addStretch()

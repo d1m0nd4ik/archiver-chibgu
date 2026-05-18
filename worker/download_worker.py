@@ -15,6 +15,7 @@ from core.logging_config import logger
 class WorkerSignals(QObject):
     """Сигналы для воркера"""
     progress = Signal(str)
+    progress_value = Signal(int)
     finished = Signal()
     error = Signal(str)
 
@@ -28,9 +29,14 @@ class DownloadWorker(QThread):
         self.signals = WorkerSignals()
         self.is_running = True
 
+    def _report(self, percent: int, message: str = None):
+        self.signals.progress_value.emit(max(0, min(100, percent)))
+        if message:
+            self.signals.progress.emit(message)
+
     def run(self):
         try:
-            self.signals.progress.emit("🔄 Инициализация...")
+            self._report(0, "🔄 Инициализация...")
             
             if not self.token or not str(self.token).strip():
                 self.signals.error.emit("❌ Ошибка: Токен VK API не указан!\n\nПолучите токен на https://vkhost.github.io/ и введите его в Настройки.")
@@ -43,16 +49,17 @@ class DownloadWorker(QThread):
                 self.signals.error.emit(f"❌ {str(init_err)}")
                 return
             
-            tagger = EmployeeTagger()
+            tagger = EmployeeTagger(db=vk.db, refresh_on_init=False)
             nlp = NLPProcessor()
-            
-            self.signals.progress.emit(f"📥 Загрузка постов из группы {self.group_identifier}...")
-            
+
+            self._report(5, f"📥 Загрузка постов из группы {self.group_identifier}...")
+
             # 🔹 ПАГИНАЦИЯ VK API (максимум 100 за запрос)
             posts = []
             offset = 0
             limit_per_call = 100
-            
+            fetch_target = max(1, self.count)
+
             while offset < self.count:
                 if not self.is_running: break
                 chunk = min(limit_per_call, self.count - offset)
@@ -68,7 +75,8 @@ class DownloadWorker(QThread):
                     if not items: break
                     posts.extend(items)
                     offset += chunk
-                    self.signals.progress.emit(f"Загружено {len(posts)}/{self.count} постов...")
+                    fetch_pct = 5 + int(25 * offset / fetch_target)
+                    self._report(fetch_pct, f"Загружено {len(posts)}/{self.count} постов...")
                 except vk_api.exceptions.ApiError as e:
                     error_text = str(e).lower()
                     if "[27]" in error_text or "group authorization failed" in error_text:
@@ -81,15 +89,20 @@ class DownloadWorker(QThread):
                     return
 
             if not posts:
-                self.signals.progress.emit("Посты не найдены")
+                self._report(100, "Посты не найдены")
+                self.signals.finished.emit()
                 return
-            
+
             total = len(posts)
             processed = 0
-            
-            for post in posts:
+            self._report(30, f"Обработка {total} постов...")
+
+            for index, post in enumerate(posts):
                 if not self.is_running: break
-                  
+
+                post_pct = 30 + int(70 * (index + 1) / max(total, 1))
+                self._report(post_pct)
+
                 post_date = post['date']
                 post_id = post['id']
 
@@ -186,21 +199,9 @@ class DownloadWorker(QThread):
                             original_post_id=post_id, media_type=att_type,
                             media_key=media_key, media_path=media_path, file_size=size
                         )
-                        # ✅ НОВОЕ: Сохраняем статистику медиа (лайки/комменты поста привязываем к медиа)
-                        vk.db.save_media_statistics(
-                            post_id=post_id,
-                            media_key=media_key,
-                            media_type=att_type,
-                            date=date,
-                            likes=likes,
-                            comments=comments,
-                            shares=shares
-                        )
-                        logger.info("Медиа и его статистика добавлены к посту %d: %s", post_id, media_path)
 
-            self.signals.progress.emit(f"Обработано: {processed}/{total}")
             vk.db.close()
-            self.signals.progress.emit(f"Завершено! Сохранено: {processed} файлов")
+            self._report(100, f"Завершено! Сохранено: {processed} файлов из {total} постов")
             self.signals.finished.emit()
             
         except Exception as e:
@@ -208,24 +209,32 @@ class DownloadWorker(QThread):
 
 
 class WallStatsRefreshSignals(QObject):
-    """Сигналы воркера обновления счётчиков через wall.get (как при загрузке медиа)"""
+    """Сигналы воркера обновления счётчиков из VK."""
     progress = Signal(str)
-    finished = Signal(int, int)  # обновлено по данным стены; код -1 если в БД нет постов
+    finished = Signal(int, int)  # обновлено; не найдено в VK (-1 если в БД нет постов)
     error = Signal(str)
 
 
 class WallStatsRefreshWorker(QThread):
     """
-    Обновляет лайки/комментарии/репосты для постов, уже лежащих в архиве,
-    используя тот же API wall.get, что и DownloadWorker (пачки по 100, без wall.getById).
-    Обновляются только посты, чей id есть в БД и который попадает в запрошенный срез стены.
+    Обновляет лайки, комментарии и репосты для постов архива:
+    1) пачками wall.get по стене сообщества;
+    2) для оставшихся — wall.getById по owner_id_post_id.
     """
 
-    def __init__(self, token, group_identifier, max_wall_posts=4000):
+    WALL_CHUNK = 100
+    GETBYID_BATCH = 100
+    MAX_WALL_SCAN = 50000
+    RATE_LIMIT_SEC = 0.34
+
+    def __init__(self, token, group_identifier, max_wall_posts=None):
         super().__init__()
         self.token = token
         self.group_identifier = group_identifier
-        self.max_wall_posts = max(100, int(max_wall_posts))
+        if max_wall_posts is None:
+            self.max_wall_posts = self.MAX_WALL_SCAN
+        else:
+            self.max_wall_posts = max(100, int(max_wall_posts))
         self.signals = WallStatsRefreshSignals()
         self.is_running = True
 
@@ -239,64 +248,142 @@ class WallStatsRefreshWorker(QThread):
         shares = rp.get("count", 0) if isinstance(rp, dict) else int(rp or 0)
         return int(likes), int(comments), int(shares)
 
+    @staticmethod
+    def _extract_wall_items(response):
+        if isinstance(response, dict):
+            return response.get("items") or []
+        if isinstance(response, list):
+            return response
+        return []
+
+    def _apply_batch(self, db, batch, refreshed_ids):
+        if not batch:
+            return 0
+        if not db.update_post_stats_batch(batch):
+            raise RuntimeError("Не удалось записать пакет статистики в БД (см. лог)")
+        for post_id, _, _, _ in batch:
+            refreshed_ids.add(post_id)
+        return len(batch)
+
+    def _refresh_from_wall(self, vk, db, ids_in_db, refreshed_ids):
+        pending = set(ids_in_db) - refreshed_ids
+        offset = 0
+        total_from_wall = 0
+
+        while pending and offset < self.max_wall_posts and self.is_running:
+            response = vk.vk.wall.get(
+                owner_id=vk.group_id,
+                count=self.WALL_CHUNK,
+                offset=offset,
+                v=VK_API_VERSION,
+                extended=1,
+            )
+            items = self._extract_wall_items(response)
+            if not items:
+                break
+
+            batch = []
+            for post in items:
+                post_id = int(post["id"])
+                if post_id not in pending:
+                    continue
+                likes, comments, shares = self._counters(post)
+                batch.append((post_id, likes, comments, shares))
+
+            applied = self._apply_batch(db, batch, refreshed_ids)
+            total_from_wall += applied
+            pending = set(ids_in_db) - refreshed_ids
+
+            self.signals.progress.emit(
+                f"⏩ Стена VK: обновлено {total_from_wall}, осталось {len(pending)} "
+                f"(смещение {offset}…{offset + len(items) - 1})"
+            )
+
+            offset += len(items)
+            time.sleep(self.RATE_LIMIT_SEC)
+
+        return total_from_wall
+
+    def _refresh_from_get_by_id(self, vk, db, owner_id, pending_ids, refreshed_ids):
+        total_from_api = 0
+        pending = sorted(pending_ids)
+        owner_id = int(owner_id)
+
+        for start in range(0, len(pending), self.GETBYID_BATCH):
+            if not self.is_running:
+                break
+
+            chunk_ids = pending[start : start + self.GETBYID_BATCH]
+            posts_param = ",".join(f"{owner_id}_{post_id}" for post_id in chunk_ids)
+
+            response = vk.vk.wall.getById(
+                posts=posts_param,
+                extended=0,
+                v=VK_API_VERSION,
+            )
+            items = self._extract_wall_items(response)
+
+            found_ids = set()
+            batch = []
+            for post in items:
+                post_id = int(post["id"])
+                found_ids.add(post_id)
+                likes, comments, shares = self._counters(post)
+                batch.append((post_id, likes, comments, shares))
+
+            applied = self._apply_batch(db, batch, refreshed_ids)
+            total_from_api += applied
+
+            missing = len(chunk_ids) - len(found_ids)
+            self.signals.progress.emit(
+                f"⏩ wall.getById: +{applied} постов "
+                f"({start + 1}–{start + len(chunk_ids)} из {len(pending)})"
+                + (f", не найдено в ответе: {missing}" if missing else "")
+            )
+
+            time.sleep(self.RATE_LIMIT_SEC)
+
+        return total_from_api
+
     def run(self):
         vk = None
         try:
-            self.signals.progress.emit("🔄 Инициализация VK (wall.get)...")
+            self.signals.progress.emit("🔄 Подключение к VK...")
             vk = VKDownloader(self.token, self.group_identifier)
             db = vk.db
 
-            ids_in_db = {
-                int(r[0])
-                for r in db._get_cursor().execute("SELECT original_post_id FROM posts").fetchall()
-                if r[0] is not None
-            }
+            ids_in_db = db.get_all_original_post_ids()
             if not ids_in_db:
                 self.signals.progress.emit("⚠️ В базе нет постов")
                 self.signals.finished.emit(-1, 0)
                 return
 
             self.signals.progress.emit(
-                f"📋 В архиве: {len(ids_in_db)} постов. Сканируем до {self.max_wall_posts} записей на стене..."
+                f"📋 В архиве {len(ids_in_db)} постов. Сверяем со стеной сообщества (owner_id={vk.group_id})..."
             )
 
-            total_refreshed = 0
-            offset = 0
-            chunk = 100
+            refreshed_ids = set()
+            total_from_wall = self._refresh_from_wall(vk, db, ids_in_db, refreshed_ids)
+            pending = set(ids_in_db) - refreshed_ids
 
-            while offset < self.max_wall_posts and self.is_running:
-                response = vk.vk.wall.get(
-                    owner_id=vk.group_id,
-                    count=chunk,
-                    offset=offset,
-                    v=VK_API_VERSION,
-                    extended=1,
+            total_from_getbyid = 0
+            if pending and self.is_running:
+                self.signals.progress.emit(
+                    f"🔎 На стене не найдено {len(pending)} постов — запрашиваем wall.getById..."
                 )
-                items = response.get("items", [])
-                if not items:
-                    break
+                total_from_getbyid = self._refresh_from_get_by_id(
+                    vk, db, vk.group_id, pending, refreshed_ids
+                )
 
-                batch = []
-                for post in items:
-                    post_id = int(post["id"])
-                    if post_id not in ids_in_db:
-                        continue
-                    likes, comments, shares = self._counters(post)
-                    batch.append((post_id, likes, comments, shares))
+            not_found = len(ids_in_db) - len(refreshed_ids)
+            total_updated = len(refreshed_ids)
 
-                if batch:
-                    if not db.update_post_stats_batch(batch):
-                        raise RuntimeError("Не удалось записать пакет статистики в БД (см. лог)")
-                    total_refreshed += len(batch)
-                    self.signals.progress.emit(
-                        f"⏩ Обновлено из стены: {total_refreshed} (смещение {offset}…{offset + len(items) - 1})"
-                    )
-
-                offset += len(items)
-                time.sleep(0.34)
-
-            self.signals.progress.emit(f"✅ Готово. Счётчики обновлены для {total_refreshed} постов архива.")
-            self.signals.finished.emit(total_refreshed, 0)
+            self.signals.progress.emit(
+                f"✅ Готово: обновлено {total_updated} "
+                f"(стена: {total_from_wall}, getById: {total_from_getbyid}"
+                f"{f', не найдено в VK: {not_found}' if not_found else ''})."
+            )
+            self.signals.finished.emit(total_updated, not_found)
 
         except vk_api.exceptions.ApiError as e:
             self.signals.error.emit(f"Ошибка VK API: {e}")

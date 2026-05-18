@@ -105,26 +105,33 @@ class DataSynchronizer:
     
     # ===== ОБНОВЛЕНИЕ СТАТИСТИКИ =====
     
-    def update_post_statistics(self, original_post_id: int, vk_api=None) -> bool:
+    def update_post_statistics(
+        self, original_post_id: int, vk_api=None, owner_id: int = None
+    ) -> bool:
         """
         Обновляет статистику поста из VK API
         
         Args:
             original_post_id: ID поста в ВКонтакте
             vk_api: объект VK API (если None, статистика не обновляется)
+            owner_id: owner_id группы для wall.getById (например -236813059)
         
         Returns:
             True если успешно, False если ошибка
         """
-        if vk_api is None:
+        if vk_api is None or owner_id is None:
             return False
         
         try:
-            # Запрашиваем информацию о посте
-            post_info = vk_api.wall.getById(posts=str(original_post_id))
-            
-            if post_info and len(post_info) > 0:
-                post = post_info[0]
+            posts_key = f"{int(owner_id)}_{int(original_post_id)}"
+            post_info = vk_api.wall.getById(posts=posts_key)
+            if isinstance(post_info, dict):
+                items = post_info.get("items") or []
+            else:
+                items = post_info or []
+
+            if items:
+                post = items[0]
                 likes = post.get('likes', {}).get('count', 0)
                 comments = post.get('comments', {}).get('count', 0)
                 reposts = post.get('reposts', {}).get('count', 0)
@@ -136,32 +143,37 @@ class DataSynchronizer:
         
         return False
     
-    def batch_update_statistics(self, post_ids: List[int], vk_api=None, 
-                               update_interval: int = 0.33) -> Tuple[int, int]:
+    def batch_update_statistics(
+        self,
+        post_ids: List[int],
+        vk_api=None,
+        owner_id: int = None,
+        update_interval: int = 0.33,
+    ) -> Tuple[int, int]:
         """
         Пакетное обновление статистики для списка постов
         
         Args:
             post_ids: список ID постов
             vk_api: объект VK API
+            owner_id: owner_id группы для wall.getById
             update_interval: интервал между запросами (секунды, для соблюдения лимитов API)
         
         Returns:
             Кортеж (успешно_обновлено, ошибок)
         """
-        if vk_api is None:
+        if vk_api is None or owner_id is None:
             return 0, len(post_ids)
         
         success_count = 0
         error_count = 0
         
         for post_id in post_ids:
-            if self.update_post_statistics(post_id, vk_api):
+            if self.update_post_statistics(post_id, vk_api, owner_id=owner_id):
                 success_count += 1
             else:
                 error_count += 1
             
-            # Соблюдаем лимит API
             time.sleep(update_interval)
         
         return success_count, error_count
@@ -211,8 +223,13 @@ class DataSynchronizer:
     
     # ===== АВТОМАТИЧЕСКАЯ СИНХРОНИЗАЦИЯ =====
     
-    def start_automatic_sync(self, vk_api=None, sync_interval_hours: int = 24,
-                            update_stats: bool = True) -> None:
+    def start_automatic_sync(
+        self,
+        vk_api=None,
+        owner_id: int = None,
+        sync_interval_hours: int = 24,
+        update_stats: bool = True,
+    ) -> None:
         """
         Запускает автоматическую синхронизацию в фоновом потоке
         
@@ -228,6 +245,7 @@ class DataSynchronizer:
         
         self.is_running = True
         self.vk_api = vk_api
+        self.owner_id = owner_id
         self.sync_interval = sync_interval_hours * 3600  # В секунды
         
         self.sync_thread = threading.Thread(
@@ -266,7 +284,9 @@ class DataSynchronizer:
                     all_posts = self.db.get_posts_by_date_range('2000-01-01',
                                                                 (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d'))
                     post_ids = [post[0] for post in all_posts]
-                    success, errors = self.batch_update_statistics(post_ids, self.vk_api)
+                    success, errors = self.batch_update_statistics(
+                        post_ids, self.vk_api, owner_id=getattr(self, "owner_id", None)
+                    )
                     logger.info(f"[Sync] Статистика обновлена: {success} успешно, {errors} ошибок")
                 
                 # Рассчитываем статистику за последние периоды

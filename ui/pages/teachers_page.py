@@ -4,8 +4,9 @@ from PySide6.QtWidgets import (
     QDateEdit, QPushButton, QTextEdit
 )
 from PySide6.QtCore import Qt
-from ui.styles import STYLES
+from ui.styles import STYLES, apply_theme_to_page
 from core.statistics_analyzer import StatisticsAnalyzer
+from core.employee_tagger import ensure_employees_loaded
 from core.logging_config import logger
 
 class TeachersPage(QWidget):
@@ -39,7 +40,7 @@ class TeachersPage(QWidget):
         self.period_combo.addItems(["Час", "День", "Неделя", "Месяц", "Год", "Все время", "Свой диапазон"])
         self.period_combo.setCurrentText("Все время")
         self.period_combo.currentTextChanged.connect(self.on_period_changed)
-        self.period_combo.setStyleSheet(self.styles['input'])
+        self.period_combo.setStyleSheet(self.styles.get('combo', self.styles['input']))
         controls_layout.addWidget(self.period_combo, 0, 1)
 
         controls_layout.addWidget(QLabel("Дата от: "), 1, 0)
@@ -47,7 +48,7 @@ class TeachersPage(QWidget):
         self.custom_start.setCalendarPopup(True)
         self.custom_start.setDate(datetime.datetime.now() - datetime.timedelta(days=30))
         self.custom_start.setEnabled(False)
-        self.custom_start.setStyleSheet(self.styles['input'])
+        self.custom_start.setStyleSheet(self.styles.get('date', self.styles['input']))
         controls_layout.addWidget(self.custom_start, 1, 1)
 
         controls_layout.addWidget(QLabel("Дата до: "), 1, 2)
@@ -55,7 +56,7 @@ class TeachersPage(QWidget):
         self.custom_end.setCalendarPopup(True)
         self.custom_end.setDate(datetime.datetime.now())
         self.custom_end.setEnabled(False)
-        self.custom_end.setStyleSheet(self.styles['input'])
+        self.custom_end.setStyleSheet(self.styles.get('date', self.styles['input']))
         controls_layout.addWidget(self.custom_end, 1, 3)
 
         self.refresh_btn = QPushButton("Обновить список")
@@ -82,11 +83,7 @@ class TeachersPage(QWidget):
 
     def update_styles(self, styles):
         self.styles = styles
-        text_color = '#000000' if STYLES._theme == 'light' else '#ffffff'
-        bg_color = '#f5f5f5' if STYLES._theme == 'light' else '#1e1e1e'
-        self.header_label.setStyleSheet(f"color: {text_color}; font-size: 22px; font-weight: bold; padding: 10px 0;")
-        self.setStyleSheet(f"background-color: {bg_color};")
-        self.teachers_text.setStyleSheet(self.styles['textedit'])
+        apply_theme_to_page(self, styles)
 
     def on_period_changed(self, value):
         custom = value == "Свой диапазон"
@@ -107,6 +104,8 @@ class TeachersPage(QWidget):
 
     def refresh_statistics(self):
         try:
+            ensure_employees_loaded(self.analyzer.db)
+
             period_key = self.get_period_selection()
             start_date, end_date = self.get_date_range()
 
