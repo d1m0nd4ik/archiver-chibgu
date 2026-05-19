@@ -54,7 +54,7 @@ class SettingsPage(QWidget):
 
         vk_layout.addWidget(QLabel("Ссылка на сообщество:"), 2, 0)
         self.group_input = QLineEdit()
-        self.group_input.setPlaceholderText("https://vk.ru/apng_archiver или ID: 236813059")
+        self.group_input.setPlaceholderText("https://vk.ru/имя_группы, club123 или 236813059")
         self.group_input.setText(self.saved_group_link)
         self.group_input.setStyleSheet(self.styles['input'])
         self.group_input.setMinimumHeight(40)
@@ -231,15 +231,31 @@ class SettingsPage(QWidget):
         group_note = ""
         if not VKUrlParser._numeric_group_id(group_link):
             try:
+                from core.vk_token import ensure_token_valid
+
                 session = vk_api.VkApi(token=token)
+                ensure_token_valid(session)
                 resolved = VKUrlParser.resolve_group_id(group_link, session)
                 if resolved is not None:
                     group_note = f"\nСообщество распознано, ID для API: {resolved}"
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Сообщество не найдено",
+                        VKUrlParser.format_resolve_hint(group_link),
+                    )
+                    return
             except ValueError as e:
                 QMessageBox.warning(self, "Сообщество не найдено", str(e))
                 return
             except Exception as e:
                 logger.warning("Проверка сообщества при сохранении: %s", e)
+                QMessageBox.warning(
+                    self,
+                    "Не удалось проверить сообщество",
+                    f"{e}\n\nНастройки не сохранены.",
+                )
+                return
 
         save_env_settings(token, group_link, '', theme)
 

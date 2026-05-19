@@ -6,6 +6,7 @@ from core.database import Database
 from core.nlp_processor import NLPProcessor
 from core.media_processor import MediaProcessor
 from core.url_parser import VKUrlParser
+from core.vk_token import TOKEN_INVALID_MSG, is_auth_error
 from config.settings import DATA_DIR, VK_API_VERSION
 from core.logging_config import logger
 
@@ -26,8 +27,8 @@ class VKDownloader:
             
             if "pka_resources" in error_msg:
                 raise Exception("Ошибка библиотеки vk_api. Попробуйте переустановить: pip install --upgrade vk-api requests") from e
-            elif "invalid access_token" in error_msg.lower():
-                raise Exception("Неверный или истёкший токен. Получите новый токен на https://vkhost.github.io/") from e
+            elif is_auth_error(e):
+                raise Exception(TOKEN_INVALID_MSG) from e
             else:
                 raise Exception(f"Ошибка инициализации VK API: {error_msg}") from e
         
@@ -74,10 +75,7 @@ class VKDownloader:
         group_id = VKUrlParser.resolve_group_id(identifier, self.vk_session)
         if group_id is not None:
             return group_id
-        raise ValueError(
-            f"Не удалось определить сообщество по «{identifier}».\n"
-            "Укажите ссылку (https://vk.ru/apng_archiver), короткое имя или числовой ID."
-        )
+        raise ValueError(VKUrlParser.format_resolve_hint(identifier))
 
     def download_photo(self, url, post_id, photo_id):
         try:
