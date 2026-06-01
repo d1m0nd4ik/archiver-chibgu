@@ -200,6 +200,7 @@ class SidebarWidget(QFrame):
         self.buttons['stats'] = NavigationButton("", "Статистика постов", "stats", self.theme)
         self.buttons['storage'] = NavigationButton("", "Хранилище постов", "storage", self.theme)
         self.buttons['teachers'] = NavigationButton("", "Преподаватели в постах", "teachers", self.theme)
+        self.buttons['departments'] = NavigationButton("", "Кафедры и преподаватели", "departments", self.theme)
 
         for btn in self.buttons.values():
             layout.addWidget(btn)

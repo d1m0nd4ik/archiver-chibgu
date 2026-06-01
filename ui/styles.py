@@ -84,6 +84,122 @@ def get_theme_colors(theme=None):
     }
 
 
+def get_section_title_style(theme=None) -> str:
+    c = get_theme_colors(theme)
+    return (
+        f"color: {c['text']}; font-size: 15px; font-weight: 600; "
+        f"padding: 0; margin: 0;"
+    )
+
+
+def get_panel_frame_stylesheet(theme=None) -> str:
+    """Панели-карточки (кафедры / преподаватели) — цвета из активной темы."""
+    c = get_theme_colors(theme)
+    return f"""
+        QFrame#deptPanel, QFrame#teacherPanel {{
+            background-color: {c['card']};
+            border: 1px solid {c['input_border']};
+            border-radius: 14px;
+        }}
+    """
+
+
+def get_table_widget_palette(theme=None) -> QPalette:
+    """Палитра таблицы: без неё Qt рисует выделение цветами темы окна (белый текст на светлом фоне)."""
+    c = get_theme_colors(theme)
+    palette = QPalette()
+    palette.setColor(QPalette.Base, QColor(c['input_bg']))
+    palette.setColor(QPalette.AlternateBase, QColor(c['card']))
+    palette.setColor(QPalette.Text, QColor(c['text']))
+    palette.setColor(QPalette.Window, QColor(c['input_bg']))
+    palette.setColor(QPalette.Highlight, QColor('#3a7bd5'))
+    palette.setColor(QPalette.HighlightedText, QColor('#ffffff'))
+    return palette
+
+
+def get_table_stylesheet(theme=None) -> str:
+    c = get_theme_colors(theme)
+    return f"""
+        QTableWidget {{
+            background-color: {c['input_bg']};
+            color: {c['text']};
+            gridline-color: {c['separator']};
+            border: 1px solid {c['input_border']};
+            border-radius: 8px;
+            font-size: 13px;
+            alternate-background-color: {c['card']};
+            outline: none;
+        }}
+        QTableWidget::item {{
+            padding: 8px 6px;
+            border: none;
+        }}
+        QTableWidget::item:selected,
+        QTableWidget::item:selected:active,
+        QTableWidget::item:selected:!active,
+        QTableWidget::item:selected:hover {{
+            background-color: #3a7bd5;
+            color: #ffffff;
+        }}
+        QTableWidget::item:alternate {{
+            background-color: {c['card']};
+        }}
+        QTableCornerButton {{
+            background-color: {c['card']};
+            border: none;
+        }}
+        QHeaderView {{
+            background-color: transparent;
+            border: none;
+        }}
+        QHeaderView::section {{
+            background-color: {c['card']};
+            color: {c['text_muted']};
+            padding: 8px 6px;
+            border: none;
+            border-bottom: 1px solid {c['separator']};
+            font-weight: 600;
+            font-size: 12px;
+        }}
+        QScrollBar:vertical {{
+            background: {c['card']};
+            width: 12px;
+            margin: 2px 0 2px 0;
+            border-radius: 6px;
+        }}
+        QScrollBar::handle:vertical {{
+            background: {c['input_border']};
+            min-height: 28px;
+            border-radius: 6px;
+        }}
+        QScrollBar::handle:vertical:hover {{
+            background: #3a7bd5;
+        }}
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+            height: 0;
+            background: none;
+        }}
+        QScrollBar:horizontal {{
+            background: {c['card']};
+            height: 12px;
+            margin: 0 2px 0 2px;
+            border-radius: 6px;
+        }}
+        QScrollBar::handle:horizontal {{
+            background: {c['input_border']};
+            min-width: 28px;
+            border-radius: 6px;
+        }}
+        QScrollBar::handle:horizontal:hover {{
+            background: #3a7bd5;
+        }}
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+            width: 0;
+            background: none;
+        }}
+    """
+
+
 # ============================================================================
 # СТИЛИ ДЛЯ ТЁМНОЙ ТЕМЫ
 # ============================================================================
@@ -183,6 +299,30 @@ DARK_STYLES = {
             border-radius: 14px; 
             padding: 15px;
             border: 1px solid #3f4654;
+        }
+    """,
+    'table': """
+        QTableWidget {
+            background-color: #2b2b2b;
+            color: #d4d4d4;
+            gridline-color: #3f4654;
+            border: 2px solid #555555;
+            border-radius: 8px;
+            font-size: 13px;
+            alternate-background-color: #32363f;
+        }
+        QTableWidget::item { padding: 6px; }
+        QTableWidget::item:selected {
+            background-color: #3a7bd5;
+            color: #ffffff;
+        }
+        QHeaderView::section {
+            background-color: #4472C4;
+            color: #ffffff;
+            padding: 8px;
+            border: none;
+            font-weight: bold;
+            font-size: 11px;
         }
     """,
     'label': "color: #ffffff; font-size: 13px; padding: 5px; ",
@@ -316,6 +456,30 @@ LIGHT_STYLES = {
             border: 1px solid #d0d5df;
         }
     """,
+    'table': """
+        QTableWidget {
+            background-color: #f6f7fa;
+            color: #2e3440;
+            gridline-color: #d0d5df;
+            border: 2px solid #c5cbd8;
+            border-radius: 8px;
+            font-size: 13px;
+            alternate-background-color: #eef0f5;
+        }
+        QTableWidget::item { padding: 6px; }
+        QTableWidget::item:selected {
+            background-color: #3a7bd5;
+            color: #ffffff;
+        }
+        QHeaderView::section {
+            background-color: #4472C4;
+            color: #ffffff;
+            padding: 8px;
+            border: none;
+            font-weight: bold;
+            font-size: 11px;
+        }
+    """,
     'label': "color: #2e3440; font-size: 13px; padding: 5px; ",
     'label_title': "color: #2e3440; font-size: 18px; font-weight: bold; padding: 10px; ",
     'progressbar': """
@@ -387,6 +551,7 @@ def apply_theme_to_page(page, styles=None):
     """Обновляет все стандартные виджеты на странице после смены темы."""
     from PySide6.QtWidgets import (
         QFrame, QLineEdit, QTextEdit, QComboBox, QDateEdit, QPushButton, QLabel, QScrollArea,
+        QTableWidget,
     )
 
     styles = styles or STYLES.get_styles()
@@ -424,6 +589,12 @@ def apply_theme_to_page(page, styles=None):
         text_edit.setStyleSheet(styles['textedit'])
     if hasattr(page, 'progress_bar'):
         page.progress_bar.setStyleSheet(styles['progressbar'])
+    if hasattr(page, 'progress'):
+        page.progress.setStyleSheet(styles['progressbar'])
+
+    table_style = get_table_stylesheet()
+    for table in page.findChildren(QTableWidget):
+        table.setStyleSheet(table_style)
 
     secondary = set(getattr(page, '_secondary_buttons', []) or [])
     for btn in page.findChildren(QPushButton):

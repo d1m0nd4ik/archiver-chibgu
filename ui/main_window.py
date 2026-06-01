@@ -6,7 +6,6 @@ from PySide6.QtWidgets import (
     QDialog, QSlider, QStackedLayout, QDateEdit, QCheckBox
 )
 from PySide6.QtCore import Qt, QTimer, Signal, QUrl
-from core.employee_tagger import ensure_employees_loaded
 from core.app_icon import get_app_icon
 from PySide6.QtGui import QFont, QPixmap, QGuiApplication, QImage
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
@@ -30,6 +29,7 @@ from .pages.storage_page import StoragePage
 from .pages.settings_page import SettingsPage
 from .pages.about_page import AboutPage
 from .pages.teachers_page import TeachersPage
+from .pages.departments_page import DepartmentsPage
 
 class MainWindow(QMainWindow):
     """Главное окно приложения"""
@@ -60,8 +60,6 @@ class MainWindow(QMainWindow):
 
         self.timer.timeout.connect(self.update_stats)
         self.timer.start(5000)
-
-        QTimer.singleShot(300, self._ensure_employees_in_background)
 
     def _fit_to_screen(self):
         """Подгоняет размер окна под монитор пользователя."""
@@ -112,6 +110,7 @@ class MainWindow(QMainWindow):
         self.stats_page = StatsPage(self.styles)             # 2
         self.storage_page = StoragePage(self.styles)        # 3    
         self.teachers_page = TeachersPage(self.styles)       # 4
+        self.departments_page = DepartmentsPage(self.styles)  # 5
         self.settings_page = SettingsPage(
             self.current_theme, self.saved_token, self.saved_group_link, self.styles
         )  # 5
@@ -122,8 +121,16 @@ class MainWindow(QMainWindow):
         self.stacked_widget.addWidget(self.stats_page)
         self.stacked_widget.addWidget(self.storage_page)
         self.stacked_widget.addWidget(self.teachers_page)
-        self.stacked_widget.addWidget(self.settings_page)
-        self.stacked_widget.addWidget(self.about_page)
+        # wrap settings/about/departments pages into scroll areas for vertical scrolling
+        def _wrap_with_scroll(widget):
+            sa = QScrollArea()
+            sa.setWidgetResizable(True)
+            sa.setWidget(widget)
+            return sa
+
+        self.stacked_widget.addWidget(self.departments_page)
+        self.stacked_widget.addWidget(_wrap_with_scroll(self.settings_page))
+        self.stacked_widget.addWidget(_wrap_with_scroll(self.about_page))
 
         content_layout_main.addWidget(self.stacked_widget)
         content_layout.addWidget(self.content_frame)
@@ -139,6 +146,7 @@ class MainWindow(QMainWindow):
         self.sidebar.buttons['stats'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['storage'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['teachers'].clicked_signal.connect(self.switch_page)
+        self.sidebar.buttons['departments'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['settings'].clicked_signal.connect(self.switch_page)
         self.sidebar.buttons['about'].clicked_signal.connect(self.switch_page)
         
@@ -160,8 +168,9 @@ class MainWindow(QMainWindow):
         'stats': 2, 
         'storage': 3, 
         'teachers' : 4,
-        'settings': 5, 
-        'about': 6
+        'departments': 5,
+        'settings': 6, 
+        'about': 7
     }
         if page_name in pages:
             self.stacked_widget.setCurrentIndex(pages[page_name])
@@ -206,6 +215,7 @@ class MainWindow(QMainWindow):
             self.stats_page,
             self.storage_page,
             self.teachers_page,
+            self.departments_page,
             self.settings_page,
             self.about_page,
         ):
@@ -222,12 +232,6 @@ class MainWindow(QMainWindow):
         group_link = self.settings_page.group_input.text().strip()
         if token or group_link or self.current_theme:
             save_env_settings(token, group_link, '', self.current_theme)
-
-    def _ensure_employees_in_background(self):
-        try:
-            ensure_employees_loaded()
-        except Exception as e:
-            logger.warning("Фоновая загрузка сотрудников: %s", e)
 
     def update_stats(self):
         """Безопасное обновление статуса"""

@@ -9,7 +9,7 @@ _RETRY_BASE_DELAY = 0.15
 
 
 class Database:
-    CURRENT_SCHEMA_VERSION = 5
+    CURRENT_SCHEMA_VERSION = 6
     _schema_initialized = False
     _init_lock = threading.Lock()
     _instances = {}
@@ -85,10 +85,12 @@ class Database:
             conn = self._get_conn()
             cursor = conn.cursor()
             self._create_tables(cursor)
+            self._ensure_schema_columns(cursor)
+            conn.commit()
             
             # ... (остальной код миграций без изменений) ...
             # Миграции выполняются ТОЛЬКО при обновлении старой БД
-            # На новом компьютере версия = 5, миграции пропускаются
+            # На новом компьютере версия = 6, миграции пропускаются
             
             Database._schema_initialized = True
 
@@ -148,14 +150,64 @@ class Database:
             rank INTEGER, recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_emp_stats_name_period ON employee_statistics(employee_name, period_type, period_start)")
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS departments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                hashtag TEXT UNIQUE,
+                url TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )""")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_departments_hashtag ON departments(hashtag)")
+
         cursor.execute("""CREATE TABLE IF NOT EXISTS employees (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             full_name TEXT UNIQUE,
             normalized_name TEXT,
+            surname TEXT,
+            firstname TEXT,
+            patronymic TEXT,
+            hashtag TEXT UNIQUE,
+            department_id INTEGER,
             source_url TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(department_id) REFERENCES departments(id)
         )""")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_employees_normalized ON employees(normalized_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_employees_hashtag ON employees(hashtag)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_employees_department ON employees(department_id)")
+
+    def _ensure_schema_columns(self, cursor):
+        try:
+            employees_columns = {row[1] for row in cursor.execute('PRAGMA table_info(employees)').fetchall()}
+            if 'surname' not in employees_columns:
+                cursor.execute('ALTER TABLE employees ADD COLUMN surname TEXT')
+            if 'firstname' not in employees_columns:
+                cursor.execute('ALTER TABLE employees ADD COLUMN firstname TEXT')
+            if 'patronymic' not in employees_columns:
+                cursor.execute('ALTER TABLE employees ADD COLUMN patronymic TEXT')
+            if 'hashtag' not in employees_columns:
+                cursor.execute('ALTER TABLE employees ADD COLUMN hashtag TEXT')
+            if 'department_id' not in employees_columns:
+                cursor.execute('ALTER TABLE employees ADD COLUMN department_id INTEGER')
+            if 'updated_at' not in employees_columns:
+                cursor.execute('ALTER TABLE employees ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+
+            posts_columns = {row[1] for row in cursor.execute('PRAGMA table_info(posts)').fetchall()}
+            if 'post_url' not in posts_columns:
+                cursor.execute('ALTER TABLE posts ADD COLUMN post_url TEXT')
+            if 'author_employee_id' not in posts_columns:
+                cursor.execute('ALTER TABLE posts ADD COLUMN author_employee_id INTEGER')
+            if 'author_department_id' not in posts_columns:
+                cursor.execute('ALTER TABLE posts ADD COLUMN author_department_id INTEGER')
+            if 'teacher_hashtag' not in posts_columns:
+                cursor.execute('ALTER TABLE posts ADD COLUMN teacher_hashtag TEXT')
+            if 'department_hashtag' not in posts_columns:
+                cursor.execute('ALTER TABLE posts ADD COLUMN department_hashtag TEXT')
+
+        except Exception as e:
+            logger.warning("_ensure_schema_columns: %s", e)
 
     # === ПУБЛИЧНЫЕ МЕТОДЫ ===
 
@@ -175,16 +227,24 @@ class Database:
             logger.error("get_all_original_post_ids: %s", e)
             return set()
 
-    def save_post(self, original_post_id, date, text, tags, likes=0, comments=0, shares=0):
+    def save_post(self, original_post_id, date, text, tags, likes=0, comments=0, shares=0,
+                  post_url=None, author_employee_id=None, author_department_id=None,
+                  teacher_hashtag=None, department_hashtag=None):
         try:
             if self.post_exists(original_post_id):
                 return False
 
             def _write():
                 self._get_cursor().execute("""
-                    INSERT INTO posts (original_post_id, date, text, tags, likes, comments, shares, last_stats_update)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (original_post_id, date, text, tags, likes, comments, shares))
+                    INSERT INTO posts (original_post_id, date, text, tags, likes, comments, shares,
+                                       post_url, author_employee_id, author_department_id,
+                                       teacher_hashtag, department_hashtag, last_stats_update)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (
+                    original_post_id, date, text, tags, likes, comments, shares,
+                    post_url, author_employee_id, author_department_id,
+                    teacher_hashtag, department_hashtag
+                ))
                 self._get_conn().commit()
                 return True
 
@@ -226,21 +286,27 @@ class Database:
         except Exception:
             return False
 
-    def save_employee(self, full_name, normalized_name=None, source_url=None):
+    def save_employee(self, full_name, normalized_name=None, surname=None, firstname=None,
+                      patronymic=None, hashtag=None, department_id=None, source_url=None):
         try:
             if normalized_name is None:
                 normalized_name = full_name.lower().replace('ё', 'е').strip()
 
             def _write():
                 self._get_cursor().execute("""
-                    INSERT OR IGNORE INTO employees (full_name, normalized_name, source_url)
-                    VALUES (?, ?, ?)
-                """, (full_name, normalized_name, source_url))
+                    INSERT OR IGNORE INTO employees (
+                        full_name, normalized_name, surname, firstname, patronymic,
+                        hashtag, department_id, source_url, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (
+                    full_name, normalized_name, surname, firstname,
+                    patronymic, hashtag, department_id, source_url))
                 self._get_conn().commit()
                 return True
 
             return self._run_write(_write, "save_employee")
-        except Exception:
+        except Exception as e:
+            logger.error(f"DB Save Employee Error: {e}")
             return False
 
     def update_employees(self, employee_names, source_url=None):
@@ -280,6 +346,299 @@ class Database:
         except Exception as e:
             logger.error(f"DB Update Employees Error: {e}")
             return False
+
+    def get_department_by_hashtag(self, hashtag):
+        try:
+            row = self._get_cursor().execute(
+                "SELECT id, name, hashtag, url FROM departments WHERE hashtag = ? LIMIT 1", (hashtag,)
+            ).fetchone()
+            return {'id': row[0], 'name': row[1], 'hashtag': row[2], 'url': row[3]} if row else None
+        except Exception:
+            return None
+
+    def get_department_by_name(self, name):
+        try:
+            row = self._get_cursor().execute(
+                "SELECT id, name, hashtag, url FROM departments WHERE name = ? LIMIT 1", (name,)
+            ).fetchone()
+            return {'id': row[0], 'name': row[1], 'hashtag': row[2], 'url': row[3]} if row else None
+        except Exception:
+            return None
+
+    def get_department_by_id(self, department_id):
+        try:
+            row = self._get_cursor().execute(
+                "SELECT id, name, hashtag, url FROM departments WHERE id = ? LIMIT 1", (department_id,)
+            ).fetchone()
+            return {'id': row[0], 'name': row[1], 'hashtag': row[2], 'url': row[3]} if row else None
+        except Exception:
+            return None
+
+    def get_departments(self):
+        try:
+            rows = self._get_cursor().execute(
+                "SELECT id, name, hashtag, url FROM departments ORDER BY name COLLATE NOCASE ASC"
+            ).fetchall()
+            return [{'id': row[0], 'name': row[1], 'hashtag': row[2], 'url': row[3]} for row in rows]
+        except Exception:
+            return []
+
+    def upsert_department(self, name, hashtag=None, url=None):
+        try:
+            existing = self.get_department_by_name(name)
+            if existing:
+                if hashtag and hashtag != existing.get('hashtag'):
+                    self._get_cursor().execute(
+                        "UPDATE departments SET hashtag = ?, url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (hashtag, url, existing['id'])
+                    )
+                    self._get_conn().commit()
+                return existing
+
+            self._get_cursor().execute(
+                "INSERT INTO departments (name, hashtag, url) VALUES (?, ?, ?)",
+                (name, hashtag, url)
+            )
+            self._get_conn().commit()
+            return self.get_department_by_name(name)
+        except Exception as e:
+            logger.error(f"DB Upsert Department Error: {e}")
+            return None
+
+    def get_employee_by_hashtag(self, hashtag):
+        try:
+            row = self._get_cursor().execute(
+                "SELECT e.id, e.full_name, e.surname, e.firstname, e.patronymic, e.hashtag, e.department_id, d.name, d.hashtag FROM employees e LEFT JOIN departments d ON e.department_id = d.id WHERE e.hashtag = ? LIMIT 1",
+                (hashtag,)
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                'id': row[0], 'full_name': row[1], 'surname': row[2], 'firstname': row[3],
+                'patronymic': row[4], 'hashtag': row[5], 'department_id': row[6],
+                'department_name': row[7], 'department_hashtag': row[8]
+            }
+        except Exception:
+            return None
+
+    def get_employee_by_normalized_name(self, normalized_name):
+        try:
+            row = self._get_cursor().execute(
+                "SELECT id, full_name, surname, firstname, patronymic, hashtag, department_id FROM employees WHERE normalized_name = ? LIMIT 1",
+                (normalized_name,)
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                'id': row[0], 'full_name': row[1], 'surname': row[2], 'firstname': row[3],
+                'patronymic': row[4], 'hashtag': row[5], 'department_id': row[6]
+            }
+        except Exception:
+            return None
+
+    def get_employee_by_id(self, employee_id):
+        try:
+            row = self._get_cursor().execute(
+                "SELECT e.id, e.full_name, e.surname, e.firstname, e.patronymic, e.hashtag, e.department_id, d.name, d.hashtag FROM employees e LEFT JOIN departments d ON e.department_id = d.id WHERE e.id = ? LIMIT 1",
+                (employee_id,)
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                'id': row[0], 'full_name': row[1], 'surname': row[2], 'firstname': row[3],
+                'patronymic': row[4], 'hashtag': row[5], 'department_id': row[6],
+                'department_name': row[7], 'department_hashtag': row[8]
+            }
+        except Exception:
+            return None
+
+    def get_employees_by_department_id(self, department_id):
+        try:
+            rows = self._get_cursor().execute(
+                "SELECT id, full_name, surname, firstname, patronymic, hashtag, department_id, source_url FROM employees WHERE department_id = ? ORDER BY full_name COLLATE NOCASE ASC",
+                (department_id,)
+            ).fetchall()
+            return [
+                {
+                    'id': row[0], 'full_name': row[1], 'surname': row[2], 'firstname': row[3],
+                    'patronymic': row[4], 'hashtag': row[5], 'department_id': row[6], 'source_url': row[7]
+                }
+                for row in rows
+            ]
+        except Exception:
+            return []
+
+    def update_employee(self, employee_id, hashtag=None, department_id=None, source_url=None):
+        try:
+            update_fields = []
+            values = []
+            if hashtag is not None:
+                update_fields.append('hashtag = ?')
+                values.append(hashtag)
+            if department_id is not None:
+                update_fields.append('department_id = ?')
+                values.append(department_id)
+            if source_url is not None:
+                update_fields.append('source_url = ?')
+                values.append(source_url)
+            if not update_fields:
+                return False
+            values.append(employee_id)
+            self._get_cursor().execute(
+                f"UPDATE employees SET {', '.join(update_fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                tuple(values)
+            )
+            self._get_conn().commit()
+            return True
+        except Exception as e:
+            logger.error(f"DB Update Employee Error: {e}")
+            return False
+
+    def get_all_employee_details(self):
+        try:
+            rows = self._get_cursor().execute("""
+                SELECT e.id, e.full_name, e.surname, e.firstname, e.patronymic, e.hashtag,
+                       e.department_id, e.source_url, d.name, d.hashtag
+                FROM employees e
+                LEFT JOIN departments d ON e.department_id = d.id
+                ORDER BY e.full_name COLLATE NOCASE ASC
+            """).fetchall()
+            return [
+                {
+                    'id': row[0], 'full_name': row[1], 'surname': row[2], 'firstname': row[3],
+                    'patronymic': row[4], 'hashtag': row[5], 'department_id': row[6],
+                    'source_url': row[7], 'department_name': row[8], 'department_hashtag': row[9]
+                }
+                for row in rows
+            ]
+        except Exception:
+            return []
+
+    def upsert_employee(self, full_name, normalized_name=None, surname=None, firstname=None,
+                        patronymic=None, hashtag=None, department_id=None, source_url=None):
+        try:
+            if normalized_name is None:
+                normalized_name = full_name.lower().replace('ё', 'е').strip()
+            existing = self._get_cursor().execute(
+                "SELECT id, hashtag, department_id FROM employees WHERE normalized_name = ? LIMIT 1",
+                (normalized_name,)
+            ).fetchone()
+            if existing:
+                emp_id, existing_hashtag, existing_department_id = existing
+                update_fields = []
+                update_values = []
+                if hashtag and hashtag != existing_hashtag:
+                    update_fields.append('hashtag = ?')
+                    update_values.append(hashtag)
+                if department_id and department_id != existing_department_id:
+                    update_fields.append('department_id = ?')
+                    update_values.append(department_id)
+                if source_url:
+                    update_fields.append('source_url = ?')
+                    update_values.append(source_url)
+                if update_fields:
+                    update_values.extend([emp_id])
+                    self._get_cursor().execute(
+                        f"UPDATE employees SET {', '.join(update_fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        tuple(update_values)
+                    )
+                    self._get_conn().commit()
+                return self.get_employee_by_id(emp_id)
+
+            self._get_cursor().execute("""
+                INSERT INTO employees (
+                    full_name, normalized_name, surname, firstname, patronymic,
+                    hashtag, department_id, source_url, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """, (
+                full_name, normalized_name, surname, firstname, patronymic,
+                hashtag, department_id, source_url
+            ))
+            self._get_conn().commit()
+            return self.get_employee_by_hashtag(hashtag) if hashtag else self._get_cursor().execute(
+                "SELECT id, full_name, surname, firstname, patronymic, hashtag, department_id FROM employees WHERE normalized_name = ? LIMIT 1",
+                (normalized_name,)
+            ).fetchone()
+        except Exception as e:
+            logger.error(f"DB Upsert Employee Error: {e}")
+            return None
+
+    def update_employee_hashtag(self, employee_id, hashtag):
+        try:
+            self._get_cursor().execute(
+                "UPDATE employees SET hashtag = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (hashtag, employee_id)
+            )
+            self._get_conn().commit()
+            return True
+        except Exception as e:
+            logger.error(f"DB Update Employee Hashtag Error: {e}")
+            return False
+
+    def delete_employee(self, employee_id):
+        try:
+            self._get_cursor().execute("DELETE FROM employees WHERE id = ?", (employee_id,))
+            self._get_conn().commit()
+            return True
+        except Exception as e:
+            logger.error(f"DB Delete Employee Error: {e}")
+            return False
+
+    def delete_department(self, department_id):
+        try:
+            self._get_cursor().execute("DELETE FROM employees WHERE department_id = ?", (department_id,))
+            self._get_cursor().execute("DELETE FROM departments WHERE id = ?", (department_id,))
+            self._get_conn().commit()
+            return True
+        except Exception as e:
+            logger.error(f"DB Delete Department Error: {e}")
+            return False
+
+    def delete_employees_not_in_list(self, normalized_names):
+        try:
+            self._get_cursor().execute(
+                "DELETE FROM employees WHERE normalized_name NOT IN ({})".format(
+                    ','.join('?' * len(normalized_names))
+                ), tuple(normalized_names)
+            )
+            self._get_conn().commit()
+            return True
+        except Exception as e:
+            logger.error(f"DB Delete Employees Not In List Error: {e}")
+            return False
+
+    def get_posts_by_employee(self, employee_id, start_date=None, end_date=None):
+        try:
+            query = "SELECT original_post_id, date, text, tags, likes, comments, shares FROM posts WHERE author_employee_id = ?"
+            params = [employee_id]
+            if start_date and end_date:
+                query += " AND date >= ? AND date <= ?"
+                params.extend([start_date, end_date])
+            query += " ORDER BY date DESC"
+            rows = self._get_cursor().execute(query, tuple(params)).fetchall()
+            return [dict(original_post_id=row[0], date=row[1], text=row[2], tags=row[3], likes=row[4], comments=row[5], shares=row[6]) for row in rows]
+        except Exception as e:
+            logger.error(f"DB get_posts_by_employee Error: {e}")
+            return []
+
+    def get_top_employees_by_period(self, start_date, end_date, limit=20):
+        try:
+            rows = self._get_cursor().execute("""
+                SELECT e.id, e.full_name, e.hashtag, d.name, d.hashtag,
+                       COUNT(p.id) as post_count, COALESCE(SUM(p.likes),0) as total_likes
+                FROM posts p
+                JOIN employees e ON p.author_employee_id = e.id
+                LEFT JOIN departments d ON e.department_id = d.id
+                WHERE p.date >= ? AND p.date <= ?
+                GROUP BY e.id ORDER BY post_count DESC, total_likes DESC LIMIT ?
+            """, (start_date, end_date, limit)).fetchall()
+            return [
+                {'id': row[0], 'employee': row[1], 'full_name': row[1], 'hashtag': row[2], 'department_name': row[3], 'department_hashtag': row[4], 'post_count': row[5], 'total_likes': row[6]}
+                for row in rows
+            ]
+        except Exception as e:
+            logger.error(f"DB get_top_employees_by_period Error: {e}")
+            return []
 
     def update_employee_post_count(self, employee_id, post_count):
         try:
@@ -358,13 +717,49 @@ class Database:
             result = self._get_cursor().execute("""
                 SELECT p.original_post_id, MAX(p.id), MAX(p.date), MAX(p.text), MAX(p.tags),
                        MAX(p.likes), MAX(p.comments), MAX(p.shares),
-                       GROUP_CONCAT(a.media_type), GROUP_CONCAT(a.media_path), GROUP_CONCAT(a.file_size)
-                FROM posts p LEFT JOIN attachments a ON p.original_post_id = a.original_post_id
+                       GROUP_CONCAT(a.media_type), GROUP_CONCAT(a.media_path), GROUP_CONCAT(a.file_size),
+                       MAX(p.post_url), MAX(p.teacher_hashtag), MAX(p.department_hashtag),
+                       MAX(e.full_name), MAX(e.hashtag), MAX(d.hashtag)
+                FROM posts p
+                LEFT JOIN attachments a ON p.original_post_id = a.original_post_id
+                LEFT JOIN employees e ON p.author_employee_id = e.id
+                LEFT JOIN departments d ON COALESCE(e.department_id, p.author_department_id) = d.id
                 GROUP BY p.original_post_id ORDER BY p.date DESC LIMIT ?
             """, (limit,)).fetchall()
             return result
         except Exception as e:
             logger.error(f"[DB] get_all_posts Error: {e}")
+            return []
+
+    def get_posts_for_teachers_export(self, start_date, end_date):
+        """Посты преподавателей за период для экспорта в Word."""
+        try:
+            rows = self._get_cursor().execute("""
+                SELECT p.text, COALESCE(p.post_url, ''),
+                       COALESCE(e.full_name, ''),
+                       COALESCE(p.teacher_hashtag, e.hashtag, ''),
+                       COALESCE(p.department_hashtag, d.hashtag, ''),
+                       p.date, e.id
+                FROM posts p
+                JOIN employees e ON p.author_employee_id = e.id
+                LEFT JOIN departments d ON COALESCE(e.department_id, p.author_department_id) = d.id
+                WHERE p.date >= ? AND p.date <= ?
+                ORDER BY e.full_name, p.date DESC
+            """, (start_date, end_date)).fetchall()
+            return [
+                {
+                    'text': row[0] or '',
+                    'post_url': row[1] or '',
+                    'author_name': row[2] or '',
+                    'teacher_hashtag': row[3] or '',
+                    'department_hashtag': row[4] or '',
+                    'date': row[5] or '',
+                    'employee_id': row[6],
+                }
+                for row in rows
+            ]
+        except Exception as e:
+            logger.error(f"[DB] get_posts_for_teachers_export Error: {e}")
             return []
 
     def get_stats(self):
@@ -472,6 +867,23 @@ class Database:
         except Exception: 
             return []
 
+    def get_top_employees_by_period_from_posts(self, period_type, period_start, period_end, limit=50):
+        try:
+            return self._get_cursor().execute('''
+                SELECT e.id, e.full_name, e.hashtag, d.name AS department_name, d.hashtag AS department_hashtag,
+                       COUNT(p.original_post_id) AS post_count,
+                       SUM(p.likes) AS total_likes
+                FROM employees e
+                LEFT JOIN posts p ON p.author_employee_id = e.id
+                LEFT JOIN departments d ON e.department_id = d.id
+                WHERE p.date >= ? AND p.date <= ?
+                GROUP BY e.id
+                ORDER BY post_count DESC
+                LIMIT ?
+            ''', (period_start, period_end, limit)).fetchall()
+        except Exception:
+            return []
+
     def get_posts_by_date_range(self, start_date, end_date, media_type=None):
         try:
             c = self._get_cursor()
@@ -479,6 +891,22 @@ class Database:
                 return c.execute("SELECT DISTINCT p.original_post_id, p.date, p.text, p.tags, a.media_type FROM posts p LEFT JOIN attachments a ON p.original_post_id = a.original_post_id WHERE p.date >= ? AND p.date <= ? AND a.media_type = ? ORDER BY p.date DESC", (start_date, end_date, media_type)).fetchall()
             return c.execute("SELECT DISTINCT p.original_post_id, p.date, p.text, p.tags, GROUP_CONCAT(a.media_type) FROM posts p LEFT JOIN attachments a ON p.original_post_id = a.original_post_id WHERE p.date >= ? AND p.date <= ? GROUP BY p.original_post_id ORDER BY p.date DESC", (start_date, end_date)).fetchall()
         except Exception: 
+            return []
+
+    def get_posts_with_author_by_date_range(self, start_date, end_date):
+        try:
+            return self._get_cursor().execute("""
+                SELECT DISTINCT p.original_post_id, p.date, p.text, p.tags, p.post_url,
+                    p.teacher_hashtag, p.department_hashtag, p.author_employee_id, p.author_department_id,
+                    e.full_name AS author_name, e.hashtag AS author_hashtag, d.name AS department_name, d.hashtag AS dept_hashtag
+                FROM posts p
+                LEFT JOIN employees e ON p.author_employee_id = e.id
+                LEFT JOIN departments d ON p.author_department_id = d.id
+                WHERE p.date >= ? AND p.date <= ?
+                ORDER BY p.date DESC
+            """, (start_date, end_date)).fetchall()
+        except Exception as e:
+            logger.error(f"get_posts_with_author_by_date_range: {e}")
             return []
 
     def get_attachments_for_post(self, original_post_id, limit=5):
@@ -526,7 +954,7 @@ class Database:
         except Exception: 
             return False
 
-    def get_top_employees_by_period(self, period_type, period_start, period_end, metric='mention_count', limit=10):
+    def get_top_employee_statistics_by_period(self, period_type, period_start, period_end, metric='mention_count', limit=10):
         try:
             col = {'mention_count': 'mention_count', 'post_count': 'post_count', 'total_likes': 'total_likes'}.get(metric, 'mention_count')
             return self._get_cursor().execute(

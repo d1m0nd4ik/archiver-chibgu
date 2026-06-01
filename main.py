@@ -14,7 +14,6 @@ from ui.main_window import MainWindow
 from ui.styles import apply_theme, STYLES, update_global_styles
 from core.config_manager import ensure_env_file, load_env_settings
 from core.app_icon import get_app_icon, ensure_app_icons
-
 def main():
     """Точка входа в приложение"""
     ensure_env_file()
@@ -38,6 +37,7 @@ def main():
         saved_post_count=settings.get('post_count', '20'),
         saved_theme=saved_theme
     )
+
     window.show()
 
     sys.exit(app.exec())

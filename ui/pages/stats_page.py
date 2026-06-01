@@ -185,9 +185,21 @@ class StatsPage(QWidget):
 
             parts.append(f'<div style="margin-bottom:6px; padding:4px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">')
             parts.append(f'<b style="font-size:13px;">{idx}. {date}</b>')
+            author_name = html.escape(str(post.get('author_name') or '—'))
+            teacher_hashtag = html.escape(str(post.get('teacher_hashtag') or '—'))
+            department_hashtag = html.escape(str(post.get('department_hashtag') or '—'))
+
+            parts.append(f'<div style="margin-top:4px; color: #9aa0a6; font-size:12px;">')
+            parts.append(
+                f'Автор: <b>{author_name}</b> &nbsp;&nbsp; '
+                f'Хэштег преподавателя: {teacher_hashtag} &nbsp;&nbsp; '
+                f'Хэштег кафедры: {department_hashtag}'
+            )
+            parts.append('</div>')
             parts.append('<div style="margin-top:4px; color: #9aa0a6; font-size:12px;">')
             parts.append(f'Лайки: {likes} &nbsp;&nbsp; Комментарии: {comments} &nbsp;&nbsp; Репосты: {shares} &nbsp;&nbsp; <b>Популярность: {popularity}</b>')
             parts.append('</div>')
+
             parts.append(f'<div style="margin-top:6px; font-size:13px; line-height:1.25;">Текст: {text}</div>')
 
             # thumbnails (if any)

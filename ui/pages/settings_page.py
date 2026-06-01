@@ -7,7 +7,6 @@ from core.desktop_shortcut import create_desktop_shortcut
 from core.logging_config import logger
 from ui.styles import STYLES, apply_theme_to_page, get_theme_colors
 import vk_api
-
 class SettingsPage(QWidget):
     """Страница настроек"""
 
@@ -107,6 +106,8 @@ class SettingsPage(QWidget):
         settings_layout.addWidget(self.line_theme)
 
         settings_layout.addStretch()
+
+        # (Синхронизация кафедр перенесена в страницу управления кафедрами)
 
         self.shortcut_btn = QPushButton("Создать или обновить ярлык на рабочем столе")
         self.shortcut_btn.setStyleSheet(self.styles['button_secondary'])
@@ -271,6 +272,8 @@ class SettingsPage(QWidget):
             f"Токен и сообщество сохранены в .env{group_note}\n"
             f"Тема: {'Светлая' if theme == 'light' else 'Тёмная'} — применена ко всему приложению.",
         )
+
+    # sync moved to Departments page
 
     def get_theme(self):
         return self.selected_theme

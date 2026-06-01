@@ -9,6 +9,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from core.database import Database
+from core.statistics_analyzer import StatisticsAnalyzer
 from core.logging_config import logger
 from ui.styles import STYLES, apply_theme_to_page, get_theme_colors
 from worker.download_worker import WallStatsRefreshWorker
@@ -24,6 +25,7 @@ class StoragePage(QWidget):
         self.active_players = {}
         self._last_posts = []
         self.stats_worker = None
+        self._analyzer = StatisticsAnalyzer()
         self.init_ui()
 
     def _theme_colors(self):
@@ -232,11 +234,36 @@ class StoragePage(QWidget):
                 media_block = self._create_media_collection_widget(normalized_media, post_id)
                 layout.addWidget(media_block)
 
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet(f"background-color: {c['separator']}; min-height: 1px; border: none;")
-        layout.addWidget(line)
+        author, teacher_tag, dept_tag = self._extract_author_meta(post)
+        layout.addWidget(self._create_author_strip(author, teacher_tag, dept_tag))
         return frame
+
+    def _extract_author_meta(self, post):
+        author_raw = post[14] if len(post) > 14 else ''
+        author_hashtag = post[15] if len(post) > 15 else ''
+        teacher_hashtag = post[12] if len(post) > 12 else ''
+        department_hashtag = post[13] if len(post) > 13 else ''
+        dept_hashtag = post[16] if len(post) > 16 else ''
+        author = self._analyzer._resolve_author_fio(author_raw, author_hashtag, teacher_hashtag)
+        teacher_tag = teacher_hashtag or author_hashtag or '—'
+        dept_tag = department_hashtag or dept_hashtag or '—'
+        return author or '—', teacher_tag, dept_tag
+
+    def _create_author_strip(self, author, teacher_tag, dept_tag):
+        c = self._theme_colors()
+        strip = QFrame()
+        strip.setStyleSheet(
+            f"QFrame {{ background-color: {c['media_bg']}; border-radius: 10px; border: none; }}"
+        )
+        strip_layout = QHBoxLayout(strip)
+        strip_layout.setContentsMargins(14, 10, 14, 10)
+        label = QLabel(
+            f"Автор: {author}   ·   Хэштег преподавателя: {teacher_tag}   ·   Хэштег кафедры: {dept_tag}"
+        )
+        label.setWordWrap(True)
+        label.setStyleSheet(f"color: {c['muted']}; font-size: 12px; line-height: 1.4;")
+        strip_layout.addWidget(label)
+        return strip
 
     def _create_media_collection_widget(self, media_items, post_id):
         colors = self._theme_colors()

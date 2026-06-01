@@ -9,6 +9,7 @@ import pymorphy3
 from core.logging_config import logger
 from core.database import Database
 from core.period_calculator import PeriodCalculator
+from core.employee_tagger import normalize_hashtag, normalize_person_name
 
 class StatisticsAnalyzer:
     def __init__(self):
@@ -97,80 +98,95 @@ class StatisticsAnalyzer:
     def get_top_employees(self, period_type: str, start_date: datetime = None,
                           end_date: datetime = None, metric: str = 'post_count', 
                           limit: int = None) -> List[Dict]:
-        """Считает упоминания преподавателей из БД в постах за период."""
+        """Считает посты преподавателей по авторству, основанному на хэштегах."""
         if start_date is None or end_date is None:
             start_date, end_date = self.period_calc.get_period_range(period_type)
 
         start_str = self.period_calc.format_date(start_date)
         end_str = self.period_calc.format_date(end_date)
 
-        # 1. Загружаем эталонный список из БД
-        db_emps = self.db.get_all_employees()
-        if not db_emps: return []
-        
-        # 2. Готовим профили для поиска
-        profiles = [self._prepare_employee(name) for name in db_emps if name and len(name.strip())>2]
+        results = self.db.get_top_employees_by_period(start_str, end_str, limit=limit or 50)
+        if not results:
+            return []
 
-        # 3. Загружаем посты
-        posts = self.db.get_posts_by_date_range(start_str, end_str)
-        if not posts: return []
+        # Поддерживаем разные метрики: пост_count или total_likes
+        if metric == 'total_likes':
+            results.sort(key=lambda x: x.get('total_likes', 0), reverse=True)
+        else:
+            results.sort(key=lambda x: x.get('post_count', 0), reverse=True)
 
-        results = []
-        # Кэш текстов постов для скорости
-        post_texts = [(post[0], (post[2] or '') + " " + (post[3] or '')) for post in posts]
-
-        # 4. Ищем совпадения
-        for emp in profiles:
-            if not emp: continue
-            matched_post_ids = set()
-            for pid, text in post_texts:
-                if self._is_mentioned(text, emp):
-                    matched_post_ids.add(pid)
-            
-            if matched_post_ids:
-                total_likes = 0
-                for pid in matched_post_ids:
-                    stats = self.db.get_post_stats(pid)
-                    if stats:
-                        total_likes += stats.get('likes', 0)
-
-                results.append({
-                    'employee': emp['display'],
-                    'post_count': len(matched_post_ids),
-                    'total_likes': total_likes,
-                })
-
-        # 5. Сортируем по количеству постов (убывание)
-        sort_key = metric if metric == 'total_likes' else 'post_count'
-        results.sort(key=lambda x: x.get(sort_key, 0), reverse=True)
-        
         return results[:limit] if limit is not None else results
 
     def get_top_posts(self, period_type, start_date=None, end_date=None, metric='likes', limit=10):
         return self.analyze_posts_by_period(period_type, start_date, end_date, metric)[:limit]
 
+    @staticmethod
+    def _strip_hashtags(text: str) -> str:
+        if not text:
+            return ''
+        cleaned = re.sub(r'#[\wА-Яа-яЁё]+', '', text)
+        return re.sub(r'\s+', ' ', cleaned).strip()
+
+    @staticmethod
+    def _format_fio_display(name: str) -> str:
+        if not name:
+            return ''
+        return normalize_person_name(name.strip())
+
+    def _lookup_employee_by_hashtag(self, hashtag: str):
+        if not hashtag:
+            return None
+        for candidate in (hashtag, normalize_hashtag(hashtag)):
+            emp = self.db.get_employee_by_hashtag(candidate)
+            if emp:
+                return emp
+        return None
+
+    def _resolve_author_fio(self, author_name: str, author_hashtag: str, teacher_hashtag: str) -> str:
+        name = (author_name or '').strip()
+        if name and not name.startswith('#'):
+            return self._format_fio_display(name)
+        for tag in (author_hashtag, teacher_hashtag):
+            emp = self._lookup_employee_by_hashtag(tag)
+            if emp and emp.get('full_name'):
+                return self._format_fio_display(emp['full_name'])
+        return ''
+
     def analyze_posts_by_period(self, period_type, start_date=None, end_date=None, metric='likes'):
         if start_date is None or end_date is None:
             start_date, end_date = self.period_calc.get_period_range(period_type)
         start_str, end_str = self.period_calc.format_date(start_date), self.period_calc.format_date(end_date)
-        posts = self.db.get_posts_by_date_range(start_str, end_str)
+        posts = self.db.get_posts_with_author_by_date_range(start_str, end_str)
         if not posts: return []
         
         results = []
         for post in posts:
             pid, date, text = post[0], post[1], post[2] or ""
+            post_url = post[4] or ''
+            teacher_hashtag = post[5] or ''
+            department_hashtag = post[6] or ''
+            author_name_raw = post[9] or ''
+            author_hashtag = post[10] or ''
             stats = self.db.get_post_stats(pid)
             if stats:
                 # Get media paths (for thumbnails) if any
                 media_items = self.db.get_attachments_for_post(pid)
                 media_paths = [m['media_path'] for m in media_items]
-                # increase text preview length
-                preview = text if len(text) <= 300 else text[:300] + '...'
+                clean_text = self._strip_hashtags(text)
+                preview = clean_text if len(clean_text) <= 300 else clean_text[:300] + '...'
                 popularity = (stats.get('likes', 0) + stats.get('comments', 0) + stats.get('shares', 0))
+                author_fio = self._resolve_author_fio(author_name_raw, author_hashtag, teacher_hashtag)
+                dept_hashtag = post[12] if len(post) > 12 else ''
+                display_teacher_tag = teacher_hashtag or author_hashtag or ''
+                display_dept_tag = department_hashtag or dept_hashtag or ''
                 results.append({
                     'post_id': pid,
-                    'date': post[1],
+                    'date': date,
                     'text': preview,
+                    'post_url': post_url,
+                    'author_name': author_fio,
+                    'teacher_hashtag': display_teacher_tag,
+                    'department_hashtag': display_dept_tag,
                     'likes': stats['likes'],
                     'comments': stats['comments'],
                     'shares': stats['shares'],

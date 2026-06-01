@@ -1,20 +1,24 @@
 import datetime
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QFrame, QLabel, QGridLayout, QComboBox, 
-    QDateEdit, QPushButton, QTextEdit
+    QWidget, QVBoxLayout, QFrame, QLabel, QGridLayout, QComboBox,
+    QDateEdit, QPushButton, QTextEdit, QMessageBox,
 )
-from PySide6.QtCore import Qt
 from ui.styles import STYLES, apply_theme_to_page
 from core.statistics_analyzer import StatisticsAnalyzer
-from core.employee_tagger import ensure_employees_loaded
+from core.statistics_exporter import StatisticsExporter
+from core.database import Database
+from core.period_calculator import PeriodCalculator
 from core.logging_config import logger
 
+
 class TeachersPage(QWidget):
-    """Страница со списком преподавателей (только ФИО и количество постов)"""
+    """Список преподавателей и экспорт их постов в Word."""
     def __init__(self, styles=None):
         super().__init__()
         self.styles = styles or STYLES.get_styles()
         self.analyzer = StatisticsAnalyzer()
+        self.exporter = StatisticsExporter()
+        self.period_calc = PeriodCalculator()
         self.init_ui()
         self.refresh_statistics()
 
@@ -29,7 +33,6 @@ class TeachersPage(QWidget):
         self.header_label = header
         layout.addWidget(header)
 
-        # --- Панель управления ---
         controls_frame = QFrame()
         controls_frame.setStyleSheet(self.styles['frame'])
         controls_layout = QGridLayout(controls_frame)
@@ -62,11 +65,15 @@ class TeachersPage(QWidget):
         self.refresh_btn = QPushButton("Обновить список")
         self.refresh_btn.setStyleSheet(self.styles['button'])
         self.refresh_btn.clicked.connect(self.refresh_statistics)
-        controls_layout.addWidget(self.refresh_btn, 2, 0, 1, 4)
+        controls_layout.addWidget(self.refresh_btn, 2, 0, 1, 2)
+
+        self.export_word_btn = QPushButton("Экспорт в Word")
+        self.export_word_btn.setStyleSheet(self.styles['button_secondary'])
+        self.export_word_btn.clicked.connect(self.export_word)
+        controls_layout.addWidget(self.export_word_btn, 2, 2, 1, 2)
 
         layout.addWidget(controls_frame)
 
-        # --- Результат ---
         self.teachers_text = QTextEdit()
         self.teachers_text.setReadOnly(True)
         self.teachers_text.setStyleSheet(self.styles['textedit'])
@@ -84,6 +91,7 @@ class TeachersPage(QWidget):
     def update_styles(self, styles):
         self.styles = styles
         apply_theme_to_page(self, styles)
+        self.refresh_statistics()
 
     def on_period_changed(self, value):
         custom = value == "Свой диапазон"
@@ -91,7 +99,10 @@ class TeachersPage(QWidget):
         self.custom_end.setEnabled(custom)
 
     def get_period_selection(self):
-        mapping = {"Час": "hour", "День": "day", "Неделя": "week", "Месяц": "month", "Год": "year", "Все время": "all_time", "Свой диапазон": "custom"}
+        mapping = {
+            "Час": "hour", "День": "day", "Неделя": "week", "Месяц": "month",
+            "Год": "year", "Все время": "all_time", "Свой диапазон": "custom",
+        }
         return mapping.get(self.period_combo.currentText(), "day")
 
     def get_date_range(self):
@@ -102,18 +113,23 @@ class TeachersPage(QWidget):
             return start, end
         return self.analyzer.period_calc.get_period_range(period)
 
+    def get_period_strings(self):
+        start_date, end_date = self.get_date_range()
+        start_str = self.period_calc.format_date(start_date)
+        end_str = self.period_calc.format_date(end_date)
+        period_key = self.get_period_selection()
+        label = self.period_calc.get_period_label(period_key, start_date, end_date)
+        return start_str, end_str, label
+
     def refresh_statistics(self):
         try:
-            ensure_employees_loaded(self.analyzer.db)
-
             period_key = self.get_period_selection()
             start_date, end_date = self.get_date_range()
 
-            # Получаем всех преподавателей из БД (без фильтрации)
             employees = self.analyzer.get_top_employees(
-                period_key, start_date, end_date, 
-                metric='post_count', 
-                limit=None
+                period_key, start_date, end_date,
+                metric='post_count',
+                limit=None,
             ) or []
 
             self.teachers_text.setPlainText(self.format_teachers(employees))
@@ -123,15 +139,46 @@ class TeachersPage(QWidget):
             self.teachers_text.setPlainText(f"Ошибка загрузки: {e}")
 
     def format_teachers(self, employees):
-        """Форматирование: ТОЛЬКО ФИО и количество постов"""
         if not employees:
             return "За выбранный период нет данных по преподавателям."
-        
+
         lines = []
         for idx, item in enumerate(employees, start=1):
             name = item.get('employee', 'Неизвестно')
             count = item.get('post_count', 0)
-            
             lines.append(f"{idx}. {name} | Постов: {count}")
-            lines.append(" ")
+            lines.append("")
         return "\n".join(lines)
+
+    def export_word(self):
+        try:
+            start_str, end_str, period_label = self.get_period_strings()
+            db = Database()
+            rows = db.get_posts_for_teachers_export(start_str, end_str)
+            db.close()
+
+            for row in rows:
+                row['author_name'] = self.analyzer._resolve_author_fio(
+                    row.get('author_name', ''),
+                    row.get('teacher_hashtag', ''),
+                    row.get('teacher_hashtag', ''),
+                )
+
+            filepath = self.exporter.export_teachers_posts_to_word(
+                rows, period_label=f'Период: {period_label}',
+            )
+            if filepath:
+                QMessageBox.information(
+                    self, "Экспорт завершен",
+                    f"Документ Word сохранён:\n{filepath}\n\n"
+                    f"Преподавателей: {len({self.exporter._format_teacher_name(r) for r in rows})}\n"
+                    f"Постов в таблице: {len(rows)}",
+                )
+            else:
+                QMessageBox.warning(
+                    self, "Ошибка экспорта",
+                    "Не удалось сохранить Word.\nУстановите пакет: pip install python-docx",
+                )
+        except Exception as e:
+            logger.error("Teachers Word export error: %s", e, exc_info=True)
+            QMessageBox.warning(self, "Ошибка экспорта", f"Не удалось экспортировать:\n{e}")
