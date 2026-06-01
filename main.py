@@ -11,9 +11,12 @@ from core.logging_config import logger
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Теперь импорты будут работать
 from ui.main_window import MainWindow
-from ui.styles import apply_theme, STYLES, update_global_styles
+from ui.styles import apply_theme, STYLES, update_global_styles, refresh_ui_scale
+from ui.ui_scale import UiScale, apply_application_font
 from core.config_manager import ensure_env_file, load_env_settings
 from core.app_icon import get_app_icon, ensure_app_icons
+
+
 def main():
     """Точка входа в приложение"""
     ensure_env_file()
@@ -25,11 +28,20 @@ def main():
     app.setOrganizationName("VK Archiver")
     app.setWindowIcon(get_app_icon())
 
+    UiScale.init_from_screen()
+    apply_application_font(app)
+
     saved_theme = settings.get('theme', 'system')
     effective_theme = apply_theme(app, saved_theme)
     update_global_styles(effective_theme)
+    refresh_ui_scale()
 
-    logger.info("Тема приложения: %s (сохранено: %s)", effective_theme, saved_theme)
+    logger.info(
+        "Тема: %s | Экран: %sx%s | Масштаб UI: %.0f%%",
+        effective_theme,
+        *UiScale.screen_size(),
+        UiScale.factor() * 100,
+    )
 
     window = MainWindow(
         saved_token=settings.get('token', ''),

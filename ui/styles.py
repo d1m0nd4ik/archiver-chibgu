@@ -1,6 +1,7 @@
 from PySide6.QtGui import QPalette, QColor
 from PySide6.QtCore import Qt
 from core.config_manager import get_effective_theme
+from ui.ui_scale import UiScale, scale_stylesheet, scale_stylesheet_dict
 
 def apply_dark_theme(app):
     """Применение тёмной темы"""
@@ -86,7 +87,7 @@ def get_theme_colors(theme=None):
 
 def get_section_title_style(theme=None) -> str:
     c = get_theme_colors(theme)
-    return (
+    return scale_stylesheet(
         f"color: {c['text']}; font-size: 15px; font-weight: 600; "
         f"padding: 0; margin: 0;"
     )
@@ -95,13 +96,13 @@ def get_section_title_style(theme=None) -> str:
 def get_panel_frame_stylesheet(theme=None) -> str:
     """Панели-карточки (кафедры / преподаватели) — цвета из активной темы."""
     c = get_theme_colors(theme)
-    return f"""
+    return scale_stylesheet(f"""
         QFrame#deptPanel, QFrame#teacherPanel {{
             background-color: {c['card']};
             border: 1px solid {c['input_border']};
             border-radius: 14px;
         }}
-    """
+    """)
 
 
 def get_table_widget_palette(theme=None) -> QPalette:
@@ -119,7 +120,7 @@ def get_table_widget_palette(theme=None) -> QPalette:
 
 def get_table_stylesheet(theme=None) -> str:
     c = get_theme_colors(theme)
-    return f"""
+    qss = f"""
         QTableWidget {{
             background-color: {c['input_bg']};
             color: {c['text']};
@@ -198,6 +199,7 @@ def get_table_stylesheet(theme=None) -> str:
             background: none;
         }}
     """
+    return scale_stylesheet(qss)
 
 
 # ============================================================================
@@ -521,11 +523,15 @@ class StyleManager:
     def set_theme(self, theme):
         """Устанавливает тему и обновляет стили"""
         self._theme = theme
-        self._styles = get_styles_for_theme(theme)
+        self._styles = scale_stylesheet_dict(get_styles_for_theme(theme))
 
     def get_styles(self):
         """Возвращает текущие стили"""
         return self._styles
+
+    def refresh_scale(self):
+        """Пересчитать px в QSS после смены разрешения / DPI."""
+        self._styles = scale_stylesheet_dict(get_styles_for_theme(self._theme))
 
     def __getitem__(self, key):
         return self._styles[key]
@@ -547,6 +553,11 @@ def update_global_styles(theme):
     """Обновляет глобальные стили при смене темы"""
     STYLES.set_theme(theme)
 
+
+def refresh_ui_scale():
+    """Пересчёт масштаба и стилей (после init_from_screen)."""
+    STYLES.refresh_scale()
+
 def apply_theme_to_page(page, styles=None):
     """Обновляет все стандартные виджеты на странице после смены темы."""
     from PySide6.QtWidgets import (
@@ -566,7 +577,9 @@ def apply_theme_to_page(page, styles=None):
 
     if hasattr(page, 'header_label'):
         page.header_label.setStyleSheet(
-            f"color: {colors['text']}; font-size: 22px; font-weight: bold; padding: 10px 0;"
+            scale_stylesheet(
+                f"color: {colors['text']}; font-size: 22px; font-weight: bold; padding: 10px 0;"
+            )
         )
 
     for frame in page.findChildren(QFrame):

@@ -10,7 +10,8 @@ from core.app_icon import get_app_icon
 from PySide6.QtGui import QFont, QPixmap, QGuiApplication, QImage
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
-from ui.styles import STYLES, update_global_styles, apply_theme_dynamic, get_theme_colors
+from ui.styles import STYLES, update_global_styles, apply_theme_dynamic, get_theme_colors, refresh_ui_scale
+from ui.ui_scale import UiScale
 from worker.download_worker import DownloadWorker
 from core.database import Database
 from core.config_manager import save_env_settings, get_system_theme
@@ -38,7 +39,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("VK Archiver CHIBGU")
         self.setWindowIcon(get_app_icon())
-        self.setMinimumSize(1024, 700)
+        min_size = UiScale.minimum_window_size()
+        self.setMinimumSize(min_size)
 
         self.worker = None
         self.timer = QTimer()
@@ -65,17 +67,28 @@ class MainWindow(QMainWindow):
         """Подгоняет размер окна под монитор пользователя."""
         screen = QGuiApplication.primaryScreen()
         if not screen:
-            self.resize(1280, 800)
+            self.resize(UiScale.px(1280), UiScale.px(800))
             return
 
         available = screen.availableGeometry()
-        target_w = max(1024, int(available.width() * 0.92))
-        target_h = max(700, int(available.height() * 0.90))
+        min_w = self.minimumWidth()
+        min_h = self.minimumHeight()
+        target_w = max(min_w, int(available.width() * 0.96))
+        target_h = max(min_h, int(available.height() * 0.92))
         self.resize(target_w, target_h)
         self.move(
             available.x() + (available.width() - target_w) // 2,
-            available.y() + (available.height() - target_h) // 2
+            available.y() + (available.height() - target_h) // 2,
         )
+
+    def _wrap_with_scroll(self, widget):
+        sa = QScrollArea()
+        sa.setWidgetResizable(True)
+        sa.setFrameShape(QFrame.NoFrame)
+        sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        sa.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        sa.setWidget(widget)
+        return sa
 
     def init_ui(self):
         central_widget = QWidget()
@@ -113,24 +126,17 @@ class MainWindow(QMainWindow):
         self.departments_page = DepartmentsPage(self.styles)  # 5
         self.settings_page = SettingsPage(
             self.current_theme, self.saved_token, self.saved_group_link, self.styles
-        )  # 5
-        self.about_page = AboutPage(self.styles)             # 6
+        )  # 6
+        self.about_page = AboutPage(self.styles)             # 7
 
         self.stacked_widget.addWidget(self.download_page)
         self.stacked_widget.addWidget(self.search_page)
         self.stacked_widget.addWidget(self.stats_page)
         self.stacked_widget.addWidget(self.storage_page)
         self.stacked_widget.addWidget(self.teachers_page)
-        # wrap settings/about/departments pages into scroll areas for vertical scrolling
-        def _wrap_with_scroll(widget):
-            sa = QScrollArea()
-            sa.setWidgetResizable(True)
-            sa.setWidget(widget)
-            return sa
-
-        self.stacked_widget.addWidget(self.departments_page)
-        self.stacked_widget.addWidget(_wrap_with_scroll(self.settings_page))
-        self.stacked_widget.addWidget(_wrap_with_scroll(self.about_page))
+        self.stacked_widget.addWidget(self._wrap_with_scroll(self.departments_page))
+        self.stacked_widget.addWidget(self._wrap_with_scroll(self.settings_page))
+        self.stacked_widget.addWidget(self._wrap_with_scroll(self.about_page))
 
         content_layout_main.addWidget(self.stacked_widget)
         content_layout.addWidget(self.content_frame)
@@ -201,9 +207,11 @@ class MainWindow(QMainWindow):
         effective = apply_theme_dynamic(app, theme)
         self.current_theme = effective
         self.saved_theme = effective
+        refresh_ui_scale()
         self.styles = STYLES.get_styles()
-
+        self.header.apply_scale()
         self.header.update_theme(effective)
+        self.sidebar.apply_scale()
         self.sidebar.update_theme(effective)
         c = get_theme_colors(effective)
         self.content_frame.setStyleSheet(f"background-color: {c['content_bg']};")

@@ -14,7 +14,9 @@ from ui.styles import (
     get_table_stylesheet,
     get_panel_frame_stylesheet,
     get_table_widget_palette,
+    scale_stylesheet,
 )
+from ui.ui_scale import UiScale
 from core.logging_config import logger
 
 
@@ -54,29 +56,39 @@ class DepartmentsPage(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(30, 30, 30, 30)
-        layout.setSpacing(20)
+        layout.setContentsMargins(*UiScale.page_margins())
+        layout.setSpacing(UiScale.px(20))
 
         c = get_theme_colors()
         self.header_label = QLabel('Кафедры и преподаватели')
         self.header_label.setStyleSheet(
-            f"color: {c['text']}; font-size: 22px; font-weight: bold; padding: 10px 0;"
+            scale_stylesheet(
+                f"color: {c['text']}; font-size: 22px; font-weight: bold; padding: 10px 0;"
+            )
         )
         layout.addWidget(self.header_label)
 
         self.summary_label = QLabel('Всего: 0 кафедр, 0 преподавателей')
-        self.summary_label.setStyleSheet(f"color: {c['text_muted']}; font-size: 14px; padding: 0 4px 8px 4px;")
+        self.summary_label.setStyleSheet(
+            scale_stylesheet(
+                f"color: {c['text_muted']}; font-size: 14px; padding: 0 4px 8px 4px;"
+            )
+        )
         layout.addWidget(self.summary_label)
 
-        content = QHBoxLayout()
-        content.setSpacing(16)
+        self._compact = UiScale.is_compact()
+        if self._compact:
+            content = QVBoxLayout()
+        else:
+            content = QHBoxLayout()
+        content.setSpacing(UiScale.px(16))
         content.setAlignment(Qt.AlignTop)
 
         self.left_panel = QFrame()
         self.left_panel.setObjectName('deptPanel')
         left_layout = QVBoxLayout(self.left_panel)
-        left_layout.setContentsMargins(16, 16, 16, 16)
-        left_layout.setSpacing(10)
+        left_layout.setContentsMargins(*UiScale.panel_margins())
+        left_layout.setSpacing(UiScale.px(10))
         self.dept_header_label = QLabel('Кафедры (0)')
         left_layout.addWidget(self.dept_header_label, 0, Qt.AlignTop)
         self.dept_table = self._create_data_table(['Кафедра', 'Хэштег'])
@@ -99,13 +111,13 @@ class DepartmentsPage(QWidget):
         self.right_panel = QFrame()
         self.right_panel.setObjectName('teacherPanel')
         right_layout = QVBoxLayout(self.right_panel)
-        right_layout.setContentsMargins(16, 16, 16, 16)
-        right_layout.setSpacing(10)
+        right_layout.setContentsMargins(*UiScale.panel_margins())
+        right_layout.setSpacing(UiScale.px(10))
         self.teacher_header_label = QLabel('Преподаватели (выберите кафедру слева)')
         self.teacher_header_label.setWordWrap(True)
         self.teacher_header_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.teacher_header_label.setMinimumHeight(40)
-        self.teacher_header_label.setMaximumHeight(56)
+        self.teacher_header_label.setMinimumHeight(UiScale.px(40))
+        self.teacher_header_label.setMaximumHeight(UiScale.px(56))
         self.teacher_header_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         right_layout.addWidget(self.teacher_header_label, 0, Qt.AlignTop)
         self.teacher_table = self._create_data_table(['Преподаватель', 'Хэштег'])
@@ -129,15 +141,16 @@ class DepartmentsPage(QWidget):
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
         self.progress.setVisible(False)
-        self.progress.setFixedHeight(26)
+        self.progress.setFixedHeight(UiScale.px(26))
         right_layout.addWidget(self.progress)
 
         self.log_label = QLabel('Лог синхронизации')
         right_layout.addWidget(self.log_label)
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        self.log_text.setMinimumHeight(120)
-        self.log_text.setMaximumHeight(120)
+        log_h = UiScale.px(100) if self._compact else UiScale.px(120)
+        self.log_text.setMinimumHeight(log_h)
+        self.log_text.setMaximumHeight(log_h)
         right_layout.addWidget(self.log_text)
 
         self.right_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -164,10 +177,14 @@ class DepartmentsPage(QWidget):
 
         self.setStyleSheet(f"background-color: {c['page_bg']};")
         self.header_label.setStyleSheet(
-            f"color: {c['text']}; font-size: 22px; font-weight: bold; padding: 10px 0;"
+            scale_stylesheet(
+                f"color: {c['text']}; font-size: 22px; font-weight: bold; padding: 10px 0;"
+            )
         )
         self.summary_label.setStyleSheet(
-            f"color: {c['text_muted']}; font-size: 14px; padding: 0 0 4px 0;"
+            scale_stylesheet(
+                f"color: {c['text_muted']}; font-size: 14px; padding: 0 0 4px 0;"
+            )
         )
         for panel in (self.left_panel, self.right_panel):
             panel.setStyleSheet(panel_qss)
@@ -182,13 +199,14 @@ class DepartmentsPage(QWidget):
         self.log_text.setStyleSheet(self.styles['textedit'])
         self.progress.setStyleSheet(self.styles['progressbar'])
 
+        btn_h = UiScale.px(40)
         for btn in self._primary_buttons:
             btn.setStyleSheet(self.styles['button'])
-            btn.setMinimumHeight(40)
+            btn.setMinimumHeight(btn_h)
             btn.setCursor(Qt.PointingHandCursor)
         for btn in self._secondary_buttons:
             btn.setStyleSheet(self.styles['button_secondary'])
-            btn.setMinimumHeight(40)
+            btn.setMinimumHeight(btn_h)
             btn.setCursor(Qt.PointingHandCursor)
 
     @staticmethod
@@ -205,11 +223,11 @@ class DepartmentsPage(QWidget):
         table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         table.setWordWrap(False)
         table.setTextElideMode(Qt.ElideRight)
-        table.verticalHeader().setDefaultSectionSize(34)
-        table.horizontalHeader().setMinimumHeight(36)
+        table.verticalHeader().setDefaultSectionSize(UiScale.px(34))
+        table.horizontalHeader().setMinimumHeight(UiScale.px(36))
         table.horizontalHeader().setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         table.setShowGrid(False)
-        table.setMinimumHeight(200)
+        table.setMinimumHeight(UiScale.px(160) if UiScale.is_compact() else UiScale.px(200))
         table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)

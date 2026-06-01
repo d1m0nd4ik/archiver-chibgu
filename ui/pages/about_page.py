@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QFrame, QLabel
 from PySide6.QtCore import Qt
-from ui.styles import STYLES, apply_theme_to_page, get_theme_colors
+from ui.styles import STYLES, apply_theme_to_page, get_theme_colors, scale_stylesheet
+from ui.ui_scale import UiScale
 
 
 class AboutPage(QWidget):
@@ -13,8 +14,8 @@ class AboutPage(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(30, 30, 30, 30)
-        layout.setSpacing(20)
+        layout.setContentsMargins(*UiScale.page_margins())
+        layout.setSpacing(UiScale.px(20))
 
         header = QLabel("О программе")
         text_color = '#000000' if STYLES._theme == 'light' else '#ffffff'
@@ -128,5 +129,7 @@ class AboutPage(QWidget):
         )
         self.version_label.setStyleSheet(f"color: {c['text_muted']}; font-size: 14px;")
         self.desc_label.setStyleSheet(
-            f"color: {c['text_muted']}; font-size: 13px; line-height: 1.55; padding-top: 4px;"
+            scale_stylesheet(
+                f"color: {c['text_muted']}; font-size: 13px; line-height: 1.55; padding-top: 4px;"
+            )
         )
