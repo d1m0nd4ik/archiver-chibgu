@@ -161,15 +161,28 @@ class StatisticsAnalyzer:
             pid, date, text = post[0], post[1], post[2] or ""
             stats = self.db.get_post_stats(pid)
             if stats:
+                # Get media paths (for thumbnails) if any
+                media_items = self.db.get_attachments_for_post(pid)
+                media_paths = [m['media_path'] for m in media_items]
+                # increase text preview length
+                preview = text if len(text) <= 300 else text[:300] + '...'
+                popularity = (stats.get('likes', 0) + stats.get('comments', 0) + stats.get('shares', 0))
                 results.append({
-                    'post_id': pid, 
+                    'post_id': pid,
                     'date': post[1],
-                    'text': text[:100] + '...' if len(text) > 100 else text,
-                    'likes': stats['likes'], 
+                    'text': preview,
+                    'likes': stats['likes'],
                     'comments': stats['comments'],
-                    'shares': stats['shares']
+                    'shares': stats['shares'],
+                    'popularity': popularity,
+                    'media_paths': media_paths,
                 })
-        mm = {'likes': lambda x: x['likes'], 'comments': lambda x: x['comments'], 'shares': lambda x: x['shares']}
+        mm = {
+            'likes': lambda x: x['likes'],
+            'comments': lambda x: x['comments'],
+            'shares': lambda x: x['shares'],
+            'popularity': lambda x: x.get('popularity', x.get('likes', 0) + x.get('comments', 0) + x.get('shares', 0))
+        }
         results.sort(key=mm.get(metric, mm['likes']), reverse=True)
         return results
 

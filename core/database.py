@@ -481,6 +481,41 @@ class Database:
         except Exception: 
             return []
 
+    def get_attachments_for_post(self, original_post_id, limit=5):
+        try:
+            cur = self._get_cursor()
+            rows = cur.execute(
+                "SELECT media_type, media_path FROM attachments WHERE original_post_id = ? LIMIT ?",
+                (original_post_id, limit)
+            ).fetchall()
+            results = []
+            import os, glob
+            for r in rows:
+                mtype, mpath = r[0], r[1]
+                chosen = mpath
+                # For video/clip try to find a thumbnail file saved by downloader
+                if mtype in ('video', 'clip'):
+                    # if the recorded media path is a video file on disk, look in same dir
+                    if mpath and os.path.exists(mpath):
+                        folder = os.path.dirname(mpath)
+                        pattern = os.path.join(folder, f"post_{original_post_id}_{mtype}_*_thumb.jpg")
+                        found = glob.glob(pattern)
+                        if found:
+                            chosen = found[0]
+                    else:
+                        # fallback: search project for any thumb matching post id
+                        found = glob.glob(f"**/post_{original_post_id}_*thumb.jpg", recursive=True)
+                        if found:
+                            chosen = found[0]
+
+                if chosen:
+                    results.append({'media_type': mtype, 'media_path': chosen})
+
+            return results
+        except Exception as e:
+            logger.error(f"get_attachments_for_post({original_post_id}): {e}")
+            return []
+
     def save_employee_statistics(self, employee_name, period_type, period_start, period_end, mention_count, post_count, total_likes, rank):
         try:
             self._get_cursor().execute(
