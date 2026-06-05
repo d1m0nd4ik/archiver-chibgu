@@ -106,10 +106,6 @@ class TeachersPage(QWidget):
     def update_styles(self, styles):
         self.styles = styles
         apply_theme_to_page(self, styles)
-        for w in (self.period_combo, self.custom_start, self.custom_end):
-            FormGrid.fix_field(w)
-        if hasattr(self, '_controls_layout'):
-            FormGrid.sync_grid(self._controls_layout, labels=self._form_labels)
         self.refresh_statistics()
 
     def on_period_changed(self, value):

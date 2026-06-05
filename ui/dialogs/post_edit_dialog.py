@@ -196,10 +196,14 @@ class PostEditDialog(QDialog):
 
         grid.addLayout(tags_col, row, 1)
 
+        from ui.combo_effects import setup_all_combos
+
+        setup_all_combos(self)
         for w in (self.datetime_edit,):
             FormGrid.fix_field(w, compact=False)
         if hasattr(self, 'source_combo'):
             FormGrid.fix_field(self.source_combo, compact=False)
+        FormGrid.fix_field(self.tag_picker, compact=False)
         FormGrid.sync_grid(grid, compact=False, labels=self._form_labels)
 
         layout.addLayout(grid)

@@ -11,6 +11,9 @@ from PySide6.QtGui import QFont, QPixmap, QGuiApplication, QImage
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from ui.styles import STYLES, update_global_styles, apply_theme_dynamic, get_theme_colors, refresh_ui_scale
+from ui.button_effects import attach_press_animation_all
+from ui.combo_effects import setup_all_combos
+from ui.date_field_effects import setup_all_date_fields
 from ui.ui_scale import UiScale
 from core.task_queue import AppTaskQueue
 from core.database import Database
@@ -197,6 +200,28 @@ class MainWindow(QMainWindow):
         self.download_page.manual_add_btn.clicked.connect(self.add_manual_post)
         self.search_page.search_btn.clicked.connect(self.search_page.run_search)
 
+        attach_press_animation_all(self)
+        setup_all_combos(self)
+        setup_all_date_fields(self)
+        self._refresh_compact_field_pages()
+
+    def _refresh_compact_field_pages(self) -> None:
+        for page in (
+            self.search_page,
+            self.stats_page,
+            self.download_page,
+        ):
+            if hasattr(page, "_apply_field_styles"):
+                page._apply_field_styles()
+            for w in getattr(page, "_compact_form_widgets", []) or []:
+                from ui.form_layout import FormGrid
+                from ui.date_field_effects import refresh_date_field
+                from PySide6.QtWidgets import QDateEdit, QDateTimeEdit
+
+                FormGrid.fix_field(w)
+                if isinstance(w, (QDateEdit, QDateTimeEdit)):
+                    refresh_date_field(w)
+
     def switch_page(self, page_name):
         pages = {
             'dashboard': 0,
@@ -281,6 +306,10 @@ class MainWindow(QMainWindow):
         if hasattr(self.settings_page, 'task_queue_panel') and self.settings_page.task_queue_panel:
             self.settings_page.task_queue_panel.update_styles(self.styles)
 
+        attach_press_animation_all(self)
+        setup_all_combos(self)
+        setup_all_date_fields(self)
+        self._refresh_compact_field_pages()
         self.settings_page.selected_theme = effective
         if self.stacked_widget.currentWidget() == self.storage_page and self.storage_page._last_posts:
             self.storage_page.load_posts(self.storage_page._last_posts, clear=True)

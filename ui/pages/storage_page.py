@@ -124,7 +124,8 @@ class StoragePage(QWidget):
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setStyleSheet("background-color: transparent; border: none;")
+        from ui.styles import get_scroll_area_stylesheet
+        self.scroll_area.setStyleSheet(get_scroll_area_stylesheet())
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
@@ -891,6 +892,8 @@ class StoragePage(QWidget):
             self.load_more_btn,
         ]
         apply_theme_to_page(self, styles)
+        from ui.styles import get_scroll_area_stylesheet
+        self.scroll_area.setStyleSheet(get_scroll_area_stylesheet())
         c = get_theme_colors()
         self.header_label.setStyleSheet(get_page_header_style())
         self._apply_summary_styles()

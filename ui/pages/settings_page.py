@@ -614,16 +614,3 @@ class SettingsPage(QWidget):
         self._update_theme_info_label()
         if self.task_queue_panel:
             self.task_queue_panel.update_styles(styles)
-        for w in (
-            self.token_input, self.group_input, self.scheduler_interval,
-            self.post_count_spin, self.cookies_file_input, self.cookies_browser_input,
-        ):
-            FormGrid.fix_field(w, compact=False)
-        for grid, labels in (
-            (getattr(self, '_vk_layout', None), self._form_labels),
-            (getattr(self, '_theme_layout', None), self._form_labels),
-            (getattr(self, '_sched_layout', None), self._form_labels),
-            (getattr(self, '_download_extra_grid', None), self._form_labels),
-        ):
-            if grid is not None:
-                FormGrid.sync_grid(grid, compact=False, labels=labels)

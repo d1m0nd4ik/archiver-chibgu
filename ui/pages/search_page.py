@@ -24,6 +24,7 @@ from ui.styles import (
     apply_panel_label_style,
 )
 from ui.form_layout import FormGrid
+from ui.button_effects import mark_compact_toolbar_button
 from ui.ui_scale import UiScale
 from ui.dialogs.post_edit_dialog import PostEditDialog
 
@@ -101,6 +102,7 @@ class SearchPage(QWidget):
         grid.addWidget(self.date_to, row, 3)
         grid.addWidget(self._make_filter_label("Тег"), row, 4)
         self.tag_combo = QComboBox()
+        self.tag_combo.setProperty("comboAllowTyping", True)
         self.tag_combo.setEditable(True)
         self.tag_combo.setInsertPolicy(QComboBox.NoInsert)
         grid.addWidget(self.tag_combo, row, 5)
@@ -138,13 +140,11 @@ class SearchPage(QWidget):
         grid.addWidget(self._make_filter_label("Пресет"), row, 0)
         preset_row = QHBoxLayout()
         self.preset_combo = QComboBox()
-        self.preset_combo.setMinimumHeight(UiScale.px(30))
         preset_row.addWidget(self.preset_combo, 1)
         self.load_preset_btn = QPushButton("Загрузить")
         self.save_preset_btn = QPushButton("Сохранить")
         self.del_preset_btn = QPushButton("Удалить")
         for b in (self.load_preset_btn, self.save_preset_btn, self.del_preset_btn):
-            b.setFixedHeight(UiScale.px(30))
             preset_row.addWidget(b)
         preset_wrap = QWidget()
         preset_wrap.setStyleSheet("background: transparent;")
@@ -155,8 +155,15 @@ class SearchPage(QWidget):
         self.del_preset_btn.clicked.connect(self._delete_selected_preset)
         self._reload_presets_combo()
 
+        self._compact_form_widgets = [
+            self.query_input, self.date_from, self.date_to,
+            self.tag_combo, self.dept_combo, self.author_combo,
+            self.media_combo, self.source_combo, self.sort_combo, self.preset_combo,
+        ]
         layout.addWidget(filters_frame)
         self._apply_field_styles()
+        for w in self._compact_form_widgets:
+            FormGrid.fix_field(w)
         FormGrid.sync_grid(grid, labels=self._filter_labels)
 
         btn_row = QHBoxLayout()
@@ -227,35 +234,36 @@ class SearchPage(QWidget):
         self.reload_filter_lists()
 
     def _apply_field_styles(self):
-        self._input_style = get_compact_input_stylesheet()
-        self._combo_style = get_compact_combo_stylesheet()
-        self._date_style = get_compact_date_stylesheet()
+        theme = getattr(STYLES, '_theme', None)
+        self._input_style = get_compact_input_stylesheet(theme)
+        self._combo_style = get_compact_combo_stylesheet(theme)
+        self._date_style = get_compact_date_stylesheet(theme)
         self.query_input.setStyleSheet(self._input_style)
-        FormGrid.fix_field(self.query_input)
         for w in (
             self.tag_combo, self.dept_combo, self.author_combo,
             self.media_combo, self.source_combo, self.sort_combo, self.preset_combo,
         ):
             w.setStyleSheet(self._combo_style)
-            FormGrid.fix_field(w)
+        from ui.date_field_effects import refresh_date_field
+
         for w in (self.date_from, self.date_to):
             w.setStyleSheet(self._date_style)
             FormGrid.fix_field(w)
-        if hasattr(self, '_filters_grid'):
-            FormGrid.sync_grid(self._filters_grid, labels=self._filter_labels)
+            refresh_date_field(w)
 
     def _apply_button_styles(self):
-        c = get_theme_colors()
-        h = UiScale.px(32)
-        self.search_btn.setStyleSheet(get_compact_button_stylesheet(True))
-        self.search_btn.setFixedHeight(h)
-        for btn in (
-            self.clear_btn, self.open_storage_btn,
+        theme = getattr(STYLES, '_theme', None)
+        c = get_theme_colors(theme)
+        self._compact_toolbar_buttons = [
+            self.search_btn, self.clear_btn, self.open_storage_btn,
             self.prev_page_btn, self.next_page_btn,
             self.load_preset_btn, self.save_preset_btn, self.del_preset_btn,
-        ):
-            btn.setStyleSheet(get_compact_button_stylesheet(False))
-            btn.setFixedHeight(h)
+        ]
+        mark_compact_toolbar_button(self.search_btn, primary=True)
+        self.search_btn.setStyleSheet(get_compact_button_stylesheet(True, theme))
+        for btn in self._compact_toolbar_buttons[1:]:
+            mark_compact_toolbar_button(btn, primary=False)
+            btn.setStyleSheet(get_compact_button_stylesheet(False, theme))
         self.count_label.setStyleSheet(
             f"color: {c['text_muted']}; font-size: {UiScale.font_small()}px;"
         )
@@ -553,8 +561,8 @@ class SearchPage(QWidget):
         apply_theme_to_page(self, styles)
         self._apply_field_styles()
         self._apply_button_styles()
+        for w in self._compact_form_widgets:
+            FormGrid.fix_field(w)
         self._apply_table_style()
         self._apply_detail_style()
         self._apply_label_styles()
-        if hasattr(self, '_filters_grid'):
-            FormGrid.sync_grid(self._filters_grid, labels=self._filter_labels)

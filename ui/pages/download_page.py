@@ -176,6 +176,7 @@ class DownloadPage(QWidget):
         self._form_labels.append(src_lbl)
         manual_grid.addWidget(src_lbl, row, 0)
         self.manual_source = QComboBox()
+        self.manual_source.setProperty("comboAllowTyping", True)
         self.manual_source.setEditable(True)
         self.manual_source.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.manual_source.lineEdit().setPlaceholderText(
@@ -376,13 +377,6 @@ class DownloadPage(QWidget):
         self.manual_tags_edit.setStyleSheet(self.styles.get('textedit', self.styles['input']))
         self.manual_files_list.setStyleSheet(self.styles.get('textedit', self.styles['input']))
         self.reload_manual_sources()
-        for w in (self.period_combo, self.date_start, self.date_end,
-                  self.manual_datetime, self.manual_source):
-            FormGrid.fix_field(w, compact=False)
-        if hasattr(self, '_vk_form_layout'):
-            FormGrid.sync_grid(self._vk_form_layout, compact=False, labels=self._form_labels)
-        if hasattr(self, '_manual_grid'):
-            FormGrid.sync_grid(self._manual_grid, compact=False, labels=self._form_labels)
 
     def reset_progress(self):
         self.progress_bar.setRange(0, 100)

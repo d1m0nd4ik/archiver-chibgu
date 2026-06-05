@@ -1,7 +1,7 @@
-from urllib.parse import quote
+from pathlib import Path
 
-from PySide6.QtGui import QPalette, QColor
-from PySide6.QtCore import Qt
+from PySide6.QtGui import QPalette, QColor, QImage, QPainter, QPolygon
+from PySide6.QtCore import Qt, QPoint
 from core.config_manager import get_effective_theme
 from ui.ui_scale import UiScale, scale_stylesheet, scale_stylesheet_dict
 
@@ -53,6 +53,73 @@ def apply_light_theme(app):
     app.setPalette(palette)
     app.setStyle("Fusion")
 
+def get_calendar_popup_stylesheet(theme=None) -> str:
+    """Всплывающий календарь QDateEdit — в стиле выпадающих списков."""
+    c = get_theme_colors(theme)
+    fs = UiScale.font_small()
+    return scale_stylesheet(f"""
+        QCalendarWidget {{
+            background-color: {c['input_bg']};
+            color: {c['text']};
+            border: 1px solid {c['input_border']};
+            border-radius: {c['radius_md']};
+        }}
+        QCalendarWidget QWidget#qt_calendar_navigationbar {{
+            background-color: {c['card']};
+            border-top-left-radius: {c['radius_md']};
+            border-top-right-radius: {c['radius_md']};
+        }}
+        QCalendarWidget QToolButton {{
+            color: {c['text']};
+            background-color: transparent;
+            border-radius: 4px;
+            padding: 4px;
+            font-size: {fs}px;
+        }}
+        QCalendarWidget QToolButton:hover {{
+            background-color: {c['hover_bg']};
+        }}
+        QCalendarWidget QToolButton:pressed {{
+            background-color: {c['accent']};
+            color: {c['on_accent']};
+        }}
+        QCalendarWidget QMenu {{
+            background-color: {c['input_bg']};
+            color: {c['text']};
+            border: 1px solid {c['input_border']};
+        }}
+        QCalendarWidget QSpinBox {{
+            background-color: {c['input_bg']};
+            color: {c['text']};
+            border: 1px solid {c['input_border']};
+            border-radius: 4px;
+            font-size: {fs}px;
+        }}
+        QCalendarWidget QAbstractItemView:enabled {{
+            color: {c['text']};
+            background-color: {c['input_bg']};
+            selection-background-color: {c['accent']};
+            selection-color: {c['on_accent']};
+            font-size: {fs}px;
+        }}
+    """)
+
+
+def get_app_global_stylesheet(theme=None) -> str:
+    """Глобальный QSS: скроллбары + календарь."""
+    return get_scrollbar_stylesheet(theme) + get_calendar_popup_stylesheet(theme)
+
+
+def _enable_ui_animations(app) -> None:
+    from PySide6.QtCore import Qt
+    for effect in (
+        Qt.UIEffect.UI_AnimateCombo,
+        Qt.UIEffect.UI_FadeMenu,
+        Qt.UIEffect.UI_AnimateMenu,
+    ):
+        app.setEffectEnabled(effect, True)
+
+
 def apply_theme(app, theme_name='system'):
     """Применяет тему к приложению"""
     effective_theme = get_effective_theme(theme_name)
@@ -60,6 +127,8 @@ def apply_theme(app, theme_name='system'):
         apply_light_theme(app)
     else:
         apply_dark_theme(app)
+    _enable_ui_animations(app)
+    app.setStyleSheet(get_app_global_stylesheet(effective_theme))
     return effective_theme
 
 ACCENT = '#3a7bd5'
@@ -183,6 +252,11 @@ def get_nav_button_stylesheet(theme=None) -> str:
             background-color: {c['hover_bg']};
             border: 2px solid {c['input_border']};
         }}
+        QPushButton:pressed {{
+            background-color: {c['card']};
+            padding-top: {pad_v + 1}px;
+            padding-bottom: {max(1, pad_v - 1)}px;
+        }}
         QPushButton:checked {{
             background-color: {c['accent']};
             color: {c['on_accent']};
@@ -264,34 +338,41 @@ def get_scroll_area_stylesheet(theme=None) -> str:
 
 
 def get_scrollbar_stylesheet(theme=None) -> str:
+    """Единый стиль полос прокрутки для QTextEdit, QScrollArea, таблиц и списков."""
     c = get_theme_colors(theme)
     return scale_stylesheet(f"""
         QScrollBar:vertical {{
             background: {c['card']};
-            width: 10px;
+            width: 12px;
             margin: 2px 0;
-            border-radius: 5px;
+            border-radius: 6px;
         }}
         QScrollBar::handle:vertical {{
             background: {c['input_border']};
-            min-height: 24px;
-            border-radius: 5px;
+            min-height: 28px;
+            border-radius: 6px;
         }}
         QScrollBar::handle:vertical:hover {{ background: {c['accent']}; }}
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+            height: 0;
+            background: none;
+        }}
         QScrollBar:horizontal {{
             background: {c['card']};
-            height: 10px;
+            height: 12px;
             margin: 0 2px;
-            border-radius: 5px;
+            border-radius: 6px;
         }}
         QScrollBar::handle:horizontal {{
             background: {c['input_border']};
-            min-width: 24px;
-            border-radius: 5px;
+            min-width: 28px;
+            border-radius: 6px;
         }}
         QScrollBar::handle:horizontal:hover {{ background: {c['accent']}; }}
-        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+            width: 0;
+            background: none;
+        }}
     """)
 
 
@@ -339,7 +420,11 @@ def get_standard_button_stylesheet(theme=None, *, primary: bool = True) -> str:
                 background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 #5a9cff, stop:1 #3578d9);
             }}
-            QPushButton:pressed {{ background-color: {c['accent_hover']}; }}
+            QPushButton:pressed {{
+                background-color: {c['accent_hover']};
+                padding-top: 12px;
+                padding-bottom: 10px;
+            }}
             QPushButton:disabled {{
                 background-color: {c['card']};
                 color: {c['text_muted']};
@@ -365,6 +450,8 @@ def get_standard_button_stylesheet(theme=None, *, primary: bool = True) -> str:
         QPushButton:pressed {{
             background-color: {c['card']};
             border-color: {c['accent_hover']};
+            padding-top: 12px;
+            padding-bottom: 10px;
         }}
     """)
 
@@ -395,7 +482,7 @@ def get_standard_textedit_stylesheet(theme=None) -> str:
             selection-background-color: {c['accent']};
         }}
         QTextEdit:focus {{ border: 1px solid {c['accent']}; }}
-    """)
+    """) + get_scrollbar_stylesheet(theme)
 
 
 def get_standard_progressbar_stylesheet(theme=None) -> str:
@@ -449,34 +536,48 @@ def get_theme_toggle_button_styles(theme=None, *, light_selected: bool) -> str:
     """)
 
 
-def _svg_data_uri(svg: str) -> str:
-    """Data-URI для QSS: url в кавычках, без charset (запятая ломает парсер Qt)."""
-    encoded = quote(svg, safe="")
-    return f'url("data:image/svg+xml,{encoded}")'
+_ARROW_CACHE_DIR = Path(__file__).resolve().parent / "_arrow_cache"
+_ARROW_URL_CACHE: dict[str, str] = {}
 
 
-def _qss_arrow_down(color: str, *, w: int = 10, h: int = 6) -> str:
-    hex_c = color.lstrip('#')
-    svg = (
-        f"<svg xmlns='http://www.w3.org/2000/svg' width='{w}' height='{h}'>"
-        f"<path fill='#{hex_c}' d='M0 0h{w}L{w // 2} {h}Z'/>"
-        f"</svg>"
-    )
-    return (
-        f"width: {w}px; height: {h}px; border: none; image: {_svg_data_uri(svg)};"
-    )
+def _arrow_png_path(direction: str, color: str) -> str:
+    """PNG-треугольник через QPainter — единственный надёжный способ для QSS на Windows."""
+    hex_c = color.lstrip("#").lower()
+    key = f"{direction}_{hex_c}"
+    if key in _ARROW_URL_CACHE:
+        return _ARROW_URL_CACHE[key]
+
+    _ARROW_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _ARROW_CACHE_DIR / f"{key}.png"
+    if not path.exists():
+        w, h = 12, 8
+        img = QImage(w, h, QImage.Format.Format_ARGB32)
+        img.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(img)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(f"#{hex_c}"))
+        if direction == "down":
+            pts = [QPoint(1, 1), QPoint(w - 1, 1), QPoint(w // 2, h - 1)]
+        else:
+            pts = [QPoint(1, h - 1), QPoint(w - 1, h - 1), QPoint(w // 2, 1)]
+        painter.drawPolygon(QPolygon(pts))
+        painter.end()
+        img.save(str(path))
+
+    url = path.as_posix()
+    _ARROW_URL_CACHE[key] = url
+    return url
 
 
-def _qss_arrow_up(color: str, *, w: int = 10, h: int = 6) -> str:
-    hex_c = color.lstrip('#')
-    svg = (
-        f"<svg xmlns='http://www.w3.org/2000/svg' width='{w}' height='{h}'>"
-        f"<path fill='#{hex_c}' d='M0 {h}h{w}L{w // 2} 0Z'/>"
-        f"</svg>"
-    )
-    return (
-        f"width: {w}px; height: {h}px; border: none; image: {_svg_data_uri(svg)};"
-    )
+def _qss_arrow_down(color: str, *, w: int = 10, h: int = 7) -> str:
+    url = _arrow_png_path("down", color)
+    return f'width: {w}px; height: {h}px; border: none; image: url("{url}");'
+
+
+def _qss_arrow_up(color: str, *, w: int = 10, h: int = 7) -> str:
+    url = _arrow_png_path("up", color)
+    return f'width: {w}px; height: {h}px; border: none; image: url("{url}");'
 
 
 def _label_inside_panel(label, names: tuple[str, ...]) -> bool:
@@ -486,6 +587,13 @@ def _label_inside_panel(label, names: tuple[str, ...]) -> bool:
             return True
         widget = widget.parentWidget()
     return False
+
+
+def _is_internal_line_edit(line_edit) -> bool:
+    """Встроенный QLineEdit внутри combo/date/spin — не стилизовать отдельно."""
+    from PySide6.QtWidgets import QComboBox, QDateEdit, QDateTimeEdit, QAbstractSpinBox
+    parent = line_edit.parent()
+    return isinstance(parent, (QComboBox, QDateEdit, QDateTimeEdit, QAbstractSpinBox))
 
 
 def _is_calendar_popup_widget(widget) -> bool:
@@ -501,98 +609,296 @@ def _is_calendar_popup_widget(widget) -> bool:
     return False
 
 
-def _compact_field_base(theme=None) -> tuple[dict, int, int]:
-    c = get_theme_colors(theme)
-    fs = UiScale.font_small()
-    h = UiScale.px(30)
-    arrow = c['text_muted']
-    return c, fs, h, arrow
-
-
 def get_compact_input_stylesheet(theme=None) -> str:
     """Компактное поле ввода (без стрелки)."""
-    c, fs, h, _ = _compact_field_base(theme)
+    c = get_theme_colors(theme)
+    fs, h, border_w, pad, _ = _field_box_metrics(compact=True)
     return scale_stylesheet(f"""
         QLineEdit {{
-            background-color: {c['input_bg']};
-            color: {c['text']};
-            border: 1px solid {c['input_border']};
-            border-radius: 6px;
-            font-size: {fs}px;
-            padding: 3px 8px;
-            min-height: {h}px;
-            max-height: {h}px;
-        }}
-    """)
-
-
-def get_combo_stylesheet(theme=None, *, compact: bool = False) -> str:
-    """QComboBox со видимой кнопкой и стрелкой (Fusion не рисует её без QSS)."""
-    c = get_theme_colors(theme)
-    arrow = c['text_muted']
-    if compact:
-        fs = UiScale.font_small()
-        h = UiScale.px(30)
-        border_w = 1
-        pad = "3px 6px 3px 8px"
-    else:
-        fs = UiScale.px(13)
-        h = UiScale.px(36)
-        border_w = 2
-        pad = "8px 12px"
-    dd = UiScale.px(28)
-    arrow_qss = _qss_arrow_down(arrow)
-    btn_bg = c.get('btn_surface', c['card'])
-    return scale_stylesheet(f"""
-        QComboBox {{
             background-color: {c['input_bg']};
             color: {c['text']};
             border: {border_w}px solid {c['input_border']};
             border-radius: 6px;
             font-size: {fs}px;
             padding: {pad};
+            min-height: {h}px;
+        }}
+    """)
+
+
+def _field_box_metrics(*, compact: bool) -> tuple[int, int, int, str, int]:
+    if compact:
+        fs = UiScale.font_small()
+        h = UiScale.px(30)
+        border_w = 1
+        pad_h = UiScale.px(8)
+        pad = f"0px {pad_h}px"
+        return fs, h, border_w, pad, UiScale.px(28)
+    fs = UiScale.px(13)
+    h = UiScale.px(40)
+    border_w = 1
+    pad_v = max(4, (h - fs - 2 * border_w) // 2)
+    return fs, h, border_w, f"{pad_v}px {UiScale.px(10)}px", UiScale.px(28)
+
+
+_DROP_BTN_RADIUS = "5px"
+
+
+def _dropdown_strip_qss(
+    dd: int, btn_bg: str, border: str, *, radius: str = _DROP_BTN_RADIUS,
+) -> str:
+    return f"""
+        subcontrol-origin: border;
+        subcontrol-position: center right;
+        width: {dd}px;
+        border: none;
+        border-left: 1px solid {border};
+        border-top-right-radius: {radius};
+        border-bottom-right-radius: {radius};
+        background-color: {btn_bg};
+    """
+
+
+def field_subcontrol_width(*, compact: bool = True) -> int:
+    """Ширина кнопки ▼ справа (combo / date) для hit-test."""
+    return _field_box_metrics(compact=compact)[4]
+
+
+def _dropdown_button_qss(
+    selector: str,
+    dd: int,
+    btn_bg: str,
+    border: str,
+    c: dict,
+    *,
+    radius: str = _DROP_BTN_RADIUS,
+) -> str:
+    """Кнопка ▼ справа у QComboBox — фон как у поля (как «Тег»)."""
+    base = _dropdown_strip_qss(dd, btn_bg, border, radius=radius)
+    return f"""
+        {selector}::drop-down {{
+            {base}
+        }}
+        {selector}::drop-down:hover {{
+            background-color: {c['hover_bg']};
+        }}
+        {selector}::drop-down:pressed {{
+            background-color: {c['accent']};
+            border-left: 1px solid {c['accent_hover']};
+        }}
+    """
+
+
+def _field_outer_height(h: int, border_w: int, fs: int, *, compact: bool) -> int:
+    """Высота border-box поля — как у QComboBox с тем же compact."""
+    if compact:
+        return h + 2 * border_w
+    pad_v = max(4, (h - fs - 2 * border_w) // 2)
+    return h + 2 * border_w + 2 * pad_v - 4
+
+
+def compact_field_outer_height() -> int:
+    """Компактная высота combo / date / input в одной строке формы."""
+    fs, h, border_w, _pad, _dd = _field_box_metrics(compact=True)
+    return _field_outer_height(h, border_w, fs, compact=True)
+
+
+def _field_box_qss(
+    selector: str,
+    c: dict,
+    fs: int,
+    h: int,
+    border_w: int,
+    pad: str,
+    dd: int,
+    *,
+    right_radius: str | None = None,
+) -> str:
+    """Общий корпус поля ввода — как у QComboBox."""
+    if right_radius is None:
+        radius_qss = f"border-radius: {c['radius_sm']};"
+    else:
+        radius_qss = (
+            f"border-top-left-radius: {c['radius_sm']}; "
+            f"border-bottom-left-radius: {c['radius_sm']}; "
+            f"border-top-right-radius: {right_radius}; "
+            f"border-bottom-right-radius: {right_radius};"
+        )
+    return f"""
+        {selector} {{
+            background-color: {c['input_bg']};
+            color: {c['text']};
+            border: {border_w}px solid {c['input_border']};
+            {radius_qss}
+            font-size: {fs}px;
+            padding: {pad};
             padding-right: {dd}px;
             min-height: {h}px;
         }}
-        QComboBox:editable {{
-            padding-right: {dd}px;
+        {selector}:focus {{
+            border: {border_w}px solid {c['accent']};
         }}
-        QComboBox:editable QLineEdit {{
+        {selector}:disabled {{
+            background-color: {c['card']};
+            color: {c['text_muted']};
+        }}
+        {selector} QLineEdit {{
             background: transparent;
             color: {c['text']};
             border: none;
             padding: 0 2px;
             margin: 0;
-            selection-background-color: #3a7bd5;
+            min-height: 0;
+            selection-background-color: {c['accent']};
         }}
-        QComboBox:focus {{
-            border: {border_w}px solid #3a7bd5;
+    """
+
+
+def _qss_spin_down_arrow(selector: str, arrow_qss: str, arrow_pressed: str) -> str:
+    """Стрелка ▼ внутри down-button — размер и центрирование как у QComboBox."""
+    center = "subcontrol-origin: padding; subcontrol-position: center center; margin: 0; padding: 0;"
+    return f"""
+        {selector}::down-arrow {{
+            {arrow_qss}
+            {center}
         }}
-        QComboBox:disabled {{
-            background-color: {c['card']};
-            color: {c['text_muted']};
+        {selector}::down-arrow:pressed {{
+            {arrow_pressed}
+            {center}
         }}
-        QComboBox::drop-down {{
-            subcontrol-origin: padding;
+    """
+
+
+def _date_calendar_button_qss(
+    selector: str,
+    dd: int,
+    btn_bg: str,
+    border: str,
+    c: dict,
+    *,
+    radius: str = _DROP_BTN_RADIUS,
+    btn_h: int,
+) -> str:
+    """Календарная кнопка — те же правила, что у QComboBox::drop-down."""
+    return f"""
+        {selector}::up-button, {selector}::up-arrow {{
+            width: 0;
+            height: 0;
+            border: none;
+            border-image: none;
+            image: none;
+        }}
+        {selector}::down-button {{
+            subcontrol-origin: border;
             subcontrol-position: center right;
             width: {dd}px;
+            height: {btn_h}px;
+            margin: 0;
+            padding: 0;
+            background-color: {btn_bg};
+            border: none;
+            border-left: 1px solid {border};
+            border-top-right-radius: {radius};
+            border-bottom-right-radius: {radius};
+            border-top-left-radius: 0px;
+            border-bottom-left-radius: 0px;
+            border-image: none;
+        }}
+        {selector}::down-button:hover {{
+            background-color: {c['hover_bg']};
+        }}
+        {selector}::down-button:pressed {{
+            background-color: {c['accent']};
+            border-left: 1px solid {c['accent_hover']};
+        }}
+    """
+
+
+def _spin_outer_height(h: int, border_w: int, fs: int, *, compact: bool) -> int:
+    """Высота border-box стилизованного QSpinBox (совпадает с sizeHint)."""
+    if compact:
+        return h + 2 * border_w + UiScale.px(5)
+    pad_v = max(4, (h - fs - 2 * border_w) // 2)
+    return h + 2 * border_w + 2 * pad_v
+
+
+def _spin_button_qss_heights(outer_h: int) -> tuple[int, int]:
+    """QSS-высоты ▲/▼: Fusion рисует на 1px меньше, зазора между кнопками нет."""
+    q = outer_h // 2 + 1
+    return q, q
+
+
+def _spin_buttons_qss(
+    c: dict, btn_w: int, btn: str, btn_qss: int, *, radius: str = "5px",
+) -> str:
+    """Кнопки ▲/▼ у QSpinBox — вплотную друг к другу, обе видимы."""
+    return f"""
+        QSpinBox::up-button, QSpinBox::down-button,
+        QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
+            subcontrol-origin: border;
+            width: {btn_w}px;
+            margin: 0;
+            padding: 0;
+            background: {btn};
             border: none;
             border-left: 1px solid {c['input_border']};
-            border-top-right-radius: 5px;
-            border-bottom-right-radius: 5px;
-            background-color: {btn_bg};
         }}
+        QSpinBox::up-button, QDoubleSpinBox::up-button {{
+            subcontrol-position: top right;
+            height: {btn_qss}px;
+            border-top-right-radius: {radius};
+        }}
+        QSpinBox::down-button, QDoubleSpinBox::down-button {{
+            subcontrol-position: bottom right;
+            height: {btn_qss}px;
+            border-bottom-right-radius: {radius};
+        }}
+        QSpinBox::up-button:hover, QSpinBox::down-button:hover,
+        QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {{
+            background: {c['hover_bg']};
+        }}
+        QSpinBox::up-button:pressed, QDoubleSpinBox::up-button:pressed,
+        QSpinBox::down-button:pressed, QDoubleSpinBox::down-button:pressed {{
+            background: {c['accent']};
+            border-left: 1px solid {c['accent_hover']};
+        }}
+    """
+
+
+def get_combo_stylesheet(theme=None, *, compact: bool = False) -> str:
+    """QComboBox со видимой кнопкой и стрелкой (Fusion не рисует её без QSS)."""
+    c = get_theme_colors(theme)
+    arrow = c['text']
+    fs, h, border_w, pad, dd = _field_box_metrics(compact=compact)
+    arrow_qss = _qss_arrow_down(arrow)
+    arrow_pressed = _qss_arrow_down(c['on_accent'])
+    strip_bg = c['input_bg']
+    drop_btn = _dropdown_button_qss("QComboBox", dd, strip_bg, c['input_border'], c)
+    field_box = _field_box_qss("QComboBox", c, fs, h, border_w, pad, dd)
+    return scale_stylesheet(f"""
+        {field_box}
+        QComboBox:editable {{
+            padding-right: {dd}px;
+        }}
+        {drop_btn}
         QComboBox::down-arrow {{
             {arrow_qss}
+        }}
+        QComboBox::down-arrow:pressed {{
+            {arrow_pressed}
         }}
         QComboBox QAbstractItemView {{
             background-color: {c['input_bg']};
             color: {c['text']};
             border: 1px solid {c['input_border']};
-            selection-background-color: #3a7bd5;
+            border-radius: {c['radius_sm']};
+            padding: 4px 0;
+            outline: none;
+            selection-background-color: {c['accent']};
+            selection-color: {c['on_accent']};
             font-size: {fs}px;
         }}
-    """)
+    """) + get_scrollbar_stylesheet(theme)
 
 
 def get_compact_combo_stylesheet(theme=None) -> str:
@@ -600,51 +906,45 @@ def get_compact_combo_stylesheet(theme=None) -> str:
     return get_combo_stylesheet(theme, compact=True)
 
 
-def get_date_stylesheet(theme=None, *, compact: bool = False) -> str:
-    """QDateEdit со стрелкой календаря."""
+def _date_field_stylesheet(
+    selector: str,
+    theme=None,
+    *,
+    compact: bool = False,
+) -> str:
+    """QDateEdit / QDateTimeEdit — корпус и кнопка ▼ как у QComboBox."""
     c = get_theme_colors(theme)
-    arrow = c['text_muted']
-    if compact:
-        fs = UiScale.font_small()
-        h = UiScale.px(30)
-        border_w = 1
-        pad = "3px 6px 3px 8px"
-    else:
-        fs = UiScale.px(13)
-        h = UiScale.px(36)
-        border_w = 2
-        pad = "8px 12px"
-    dd = UiScale.px(28)
-    arrow_qss = _qss_arrow_down(arrow)
-    btn_bg = c.get('btn_surface', c['card'])
+    fs, h, border_w, pad, dd = _field_box_metrics(compact=compact)
+    outer_h = _field_outer_height(h, border_w, fs, compact=compact)
+    btn_h = outer_h + 1
+    arrow_qss = _qss_arrow_down(c['text'])
+    arrow_pressed = _qss_arrow_down(c['on_accent'])
+    field_box = _field_box_qss(
+        selector, c, fs, h, border_w, pad, dd, right_radius=_DROP_BTN_RADIUS,
+    )
+    cal_btn = _date_calendar_button_qss(
+        selector, dd, c['input_bg'], c['input_border'], c, btn_h=btn_h,
+    )
+    spin_arrow = _qss_spin_down_arrow(selector, arrow_qss, arrow_pressed)
     return scale_stylesheet(f"""
-        QDateEdit {{
+        {field_box}
+        {cal_btn}
+        {spin_arrow}
+        {selector} QLineEdit {{
             background-color: {c['input_bg']};
             color: {c['text']};
-            border: {border_w}px solid {c['input_border']};
-            border-radius: 6px;
-            font-size: {fs}px;
-            padding: {pad};
-            padding-right: {dd}px;
-            min-height: {h}px;
-        }}
-        QDateEdit:focus {{
-            border: {border_w}px solid #3a7bd5;
-        }}
-        QDateEdit::drop-down {{
-            subcontrol-origin: padding;
-            subcontrol-position: center right;
-            width: {dd}px;
             border: none;
-            border-left: 1px solid {c['input_border']};
-            border-top-right-radius: 5px;
-            border-bottom-right-radius: 5px;
-            background-color: {btn_bg};
-        }}
-        QDateEdit::down-arrow {{
-            {arrow_qss}
+            padding: 0 2px;
+            margin: 0;
+            min-height: 0;
+            selection-background-color: {c['accent']};
         }}
     """)
+
+
+def get_date_stylesheet(theme=None, *, compact: bool = False) -> str:
+    """QDateEdit — как QComboBox: текст по центру, видимая кнопка календаря."""
+    return _date_field_stylesheet("QDateEdit", theme, compact=compact)
 
 
 def get_compact_date_stylesheet(theme=None) -> str:
@@ -653,24 +953,30 @@ def get_compact_date_stylesheet(theme=None) -> str:
 
 
 def get_datetime_stylesheet(theme=None, *, compact: bool = False) -> str:
-    """QDateTimeEdit — дата и время в едином стиле с полями."""
+    """QDateTimeEdit — как QComboBox: дата/время и кнопка календаря."""
+    return _date_field_stylesheet("QDateTimeEdit", theme, compact=compact)
+
+
+def get_compact_datetime_stylesheet(theme=None) -> str:
+    """Компактный выбор даты и времени."""
+    return get_datetime_stylesheet(theme, compact=True)
+
+
+def get_spinbox_stylesheet(theme=None, *, compact: bool = False) -> str:
+    """QSpinBox — видимые ▲/▼, текст по центру."""
     c = get_theme_colors(theme)
-    arrow = c['text']
-    if compact:
-        fs = UiScale.font_small()
-        h = UiScale.px(30)
-        border_w = 1
-        pad = "3px 6px 3px 8px"
-    else:
-        fs = UiScale.px(13)
-        h = UiScale.px(40)
-        border_w = 1
-        pad = "8px 12px"
-    dd = UiScale.px(30)
-    arrow_qss = _qss_arrow_down(arrow)
-    btn_bg = c.get('btn_surface', c['card'])
+    fs, h, border_w, pad, dd = _field_box_metrics(compact=compact)
+    btn_w = dd
+    btn = c['input_bg']
+    outer_h = _spin_outer_height(h, border_w, fs, compact=compact)
+    btn_qss, _ = _spin_button_qss_heights(outer_h)
+    up_arrow = _qss_arrow_up(c['text'])
+    down_arrow = _qss_arrow_down(c['text'])
+    up_pressed = _qss_arrow_up(c['on_accent'])
+    down_pressed = _qss_arrow_down(c['on_accent'])
+    spin_btns = _spin_buttons_qss(c, btn_w, btn, btn_qss, radius=c['radius_sm'])
     return scale_stylesheet(f"""
-        QDateTimeEdit {{
+        QSpinBox, QDoubleSpinBox {{
             background-color: {c['input_bg']};
             color: {c['text']};
             border: {border_w}px solid {c['input_border']};
@@ -678,72 +984,35 @@ def get_datetime_stylesheet(theme=None, *, compact: bool = False) -> str:
             font-size: {fs}px;
             font-weight: 500;
             padding: {pad};
-            padding-right: {dd}px;
+            padding-right: {btn_w}px;
             min-height: {h}px;
         }}
-        QDateTimeEdit:focus {{
+        QSpinBox:focus, QDoubleSpinBox:focus {{
             border: {border_w}px solid {c['accent']};
         }}
-        QDateTimeEdit::drop-down {{
-            subcontrol-origin: padding;
-            subcontrol-position: center right;
-            width: {dd}px;
-            border: none;
-            border-left: 1px solid {c['input_border']};
-            border-top-right-radius: 5px;
-            border-bottom-right-radius: 5px;
-            background-color: {btn_bg};
+        QSpinBox:disabled, QDoubleSpinBox:disabled {{
+            background-color: {c['card']};
+            color: {c['text_muted']};
         }}
-        QDateTimeEdit::down-arrow {{
-            {arrow_qss}
-        }}
-    """)
-
-
-def get_spinbox_stylesheet(theme=None) -> str:
-    """QSpinBox / QDoubleSpinBox — без чёрного фона и стрелок."""
-    c = get_theme_colors(theme)
-    fs = UiScale.px(13)
-    h = UiScale.px(36)
-    btn = c.get('btn_surface', c['card'])
-    up_arrow = _qss_arrow_up(c['text'])
-    down_arrow = _qss_arrow_down(c['text'])
-    return scale_stylesheet(f"""
-        QAbstractSpinBox {{
-            background-color: {c['input_bg']};
-            color: {c['text']};
-            border: 1px solid {c['input_border']};
-            border-radius: {c['radius_sm']};
-            font-size: {fs}px;
-            font-weight: 500;
-            padding: 4px 8px;
-            min-height: {h}px;
-        }}
-        QAbstractSpinBox:focus {{
-            border: 1px solid {c['accent']};
-        }}
-        QAbstractSpinBox::up-button, QAbstractSpinBox::down-button {{
-            subcontrol-origin: border;
-            width: 22px;
-            background: {btn};
-            border-left: 1px solid {c['input_border']};
-        }}
-        QAbstractSpinBox::up-button {{
-            subcontrol-position: top right;
-            border-top-right-radius: 5px;
-        }}
-        QAbstractSpinBox::down-button {{
-            subcontrol-position: bottom right;
-            border-bottom-right-radius: 5px;
-        }}
-        QAbstractSpinBox::up-button:hover, QAbstractSpinBox::down-button:hover {{
-            background: {c['hover_bg']};
-        }}
-        QAbstractSpinBox::up-arrow {{
+        {spin_btns}
+        QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
             {up_arrow}
         }}
-        QAbstractSpinBox::down-arrow {{
+        QSpinBox::up-arrow:pressed, QDoubleSpinBox::up-arrow:pressed {{
+            {up_pressed}
+        }}
+        QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
             {down_arrow}
+        }}
+        QSpinBox::down-arrow:pressed, QDoubleSpinBox::down-arrow:pressed {{
+            {down_pressed}
+        }}
+        QSpinBox QLineEdit, QDoubleSpinBox QLineEdit {{
+            background: transparent;
+            border: none;
+            padding: 0;
+            margin: 0;
+            min-height: 0;
         }}
     """)
 
@@ -788,9 +1057,14 @@ def get_compact_button_stylesheet(primary: bool, theme=None) -> str:
                 font-weight: 600;
                 padding: 4px 14px;
                 min-height: {h}px;
-                max-height: {h}px;
             }}
-            QPushButton:hover {{ background-color: #2c5aa0; }}
+            QPushButton:hover {{ background-color: #4b8df2; }}
+            QPushButton:pressed,
+            QPushButton[pressAnim="true"] {{
+                background-color: #255cb4;
+                padding-top: 5px;
+                padding-bottom: 3px;
+            }}
         """)
     surf = c.get('btn_surface', c['card'])
     return scale_stylesheet(f"""
@@ -803,14 +1077,17 @@ def get_compact_button_stylesheet(primary: bool, theme=None) -> str:
             font-weight: 600;
             padding: 4px 12px;
             min-height: {h}px;
-            max-height: {h}px;
         }}
         QPushButton:hover {{
             background-color: {c['hover_bg']};
             border-color: {c['accent']};
         }}
-        QPushButton:pressed {{
+        QPushButton:pressed,
+        QPushButton[pressAnim="true"] {{
             background-color: {c['card']};
+            border-color: {c['accent']};
+            padding-top: 5px;
+            padding-bottom: 3px;
         }}
     """)
 
@@ -842,6 +1119,11 @@ def get_task_queue_styles(theme=None) -> dict[str, str]:
                 border-color: #3a7bd5;
                 color: {c['text']};
             }}
+            QPushButton:pressed {{
+                background-color: {c['hover_bg']};
+                padding-top: 6px;
+                padding-bottom: 4px;
+            }}
         """),
         'cancel': base_btn + scale_stylesheet("""
             QPushButton {
@@ -851,6 +1133,11 @@ def get_task_queue_styles(theme=None) -> dict[str, str]:
             }
             QPushButton:hover {
                 background-color: #ea580c;
+            }
+            QPushButton:pressed {
+                background-color: #9a3412;
+                padding-top: 6px;
+                padding-bottom: 4px;
             }
         """),
         'cancel_disabled': base_btn + scale_stylesheet(f"""
@@ -1483,7 +1770,7 @@ class StyleManager:
     def set_theme(self, theme):
         """Устанавливает тему и обновляет стили"""
         self._theme = theme
-        self._styles = scale_stylesheet_dict(get_styles_for_theme(theme))
+        self._styles = get_styles_for_theme(theme)
 
     def get_styles(self):
         """Возвращает текущие стили"""
@@ -1491,7 +1778,7 @@ class StyleManager:
 
     def refresh_scale(self):
         """Пересчитать px в QSS после смены разрешения / DPI."""
-        self._styles = scale_stylesheet_dict(get_styles_for_theme(self._theme))
+        self._styles = get_styles_for_theme(self._theme)
 
     def __getitem__(self, key):
         return self._styles[key]
@@ -1540,6 +1827,7 @@ def refresh_ui_scale():
     """Пересчёт масштаба и стилей (после init_from_screen)."""
     STYLES.refresh_scale()
 
+
 def apply_theme_to_page(page, styles=None):
     """Обновляет все стандартные виджеты на странице после смены темы."""
     from PySide6.QtWidgets import (
@@ -1578,22 +1866,32 @@ def apply_theme_to_page(page, styles=None):
             continue
         frame.setStyleSheet(styles['frame'])
 
-    combo_style = get_combo_stylesheet(theme, compact=False)
-    date_style = get_date_stylesheet(theme, compact=False)
+    from ui.form_layout import FormGrid, release_fixed_height
+
+    compact_ids = {id(w) for w in getattr(page, '_compact_form_widgets', []) or []}
+
+    combo_style = styles.get('combo') or get_combo_stylesheet(theme, compact=False)
+    date_style = styles.get('date') or get_date_stylesheet(theme, compact=False)
     for combo in page.findChildren(QComboBox):
-        if _is_calendar_popup_widget(combo):
+        if id(combo) in compact_ids or _is_calendar_popup_widget(combo):
             continue
+        release_fixed_height(combo)
         combo.setStyleSheet(combo_style)
     for date_edit in page.findChildren(QDateEdit):
-        if _is_calendar_popup_widget(date_edit):
+        if id(date_edit) in compact_ids or _is_calendar_popup_widget(date_edit):
             continue
+        release_fixed_height(date_edit)
         date_edit.setStyleSheet(date_style)
-    dt_style = styles.get('datetime', get_datetime_stylesheet(theme))
+    dt_style = styles.get('datetime') or get_datetime_stylesheet(theme, compact=False)
     for dt_edit in page.findChildren(QDateTimeEdit):
-        if _is_calendar_popup_widget(dt_edit):
+        if id(dt_edit) in compact_ids or _is_calendar_popup_widget(dt_edit):
             continue
+        release_fixed_height(dt_edit)
         dt_edit.setStyleSheet(dt_style)
     for line_edit in page.findChildren(QLineEdit):
+        if id(line_edit) in compact_ids or _is_internal_line_edit(line_edit):
+            continue
+        release_fixed_height(line_edit)
         line_edit.setStyleSheet(styles['input'])
     for text_edit in page.findChildren(QTextEdit):
         if hasattr(page, 'errors_view') and text_edit is page.errors_view:
@@ -1602,10 +1900,16 @@ def apply_theme_to_page(page, styles=None):
             text_edit.setStyleSheet(styles['textedit'])
     for lst in page.findChildren(QListWidget):
         lst.setStyleSheet(styles['textedit'])
-    spin_style = styles.get('spinbox', get_spinbox_stylesheet(theme))
+    spin_style = styles.get('spinbox') or get_spinbox_stylesheet(theme)
     for spin in page.findChildren(QAbstractSpinBox):
+        # QDateEdit / QDateTimeEdit наследуют QAbstractSpinBox — не затирать их стиль
+        if id(spin) in compact_ids:
+            continue
+        if isinstance(spin, (QDateEdit, QDateTimeEdit)):
+            continue
         if _is_calendar_popup_widget(spin):
             continue
+        release_fixed_height(spin)
         spin.setStyleSheet(spin_style)
     chk_style = scale_stylesheet(f"""
         QCheckBox {{ color: {colors['text']}; font-size: {UiScale.font_small()}px; spacing: 8px; }}
@@ -1632,9 +1936,12 @@ def apply_theme_to_page(page, styles=None):
     for table in page.findChildren(QTableWidget):
         apply_table_theme(table, theme)
 
+    compact_btns = set(getattr(page, '_compact_toolbar_buttons', []) or [])
     secondary = set(getattr(page, '_secondary_buttons', []) or [])
     for btn in page.findChildren(QPushButton):
         if hasattr(page, 'theme_toggle_btn') and btn is page.theme_toggle_btn:
+            continue
+        if btn in compact_btns:
             continue
         if btn in secondary:
             btn.setStyleSheet(styles['button_secondary'])
@@ -1675,6 +1982,21 @@ def apply_theme_to_page(page, styles=None):
             label.setAutoFillBackground(False)
             label.setStyleSheet(styles.get('label', ''))
 
+    if hasattr(page, '_apply_field_styles'):
+        page._apply_field_styles()
+    if hasattr(page, '_apply_button_styles'):
+        page._apply_button_styles()
+    for w in getattr(page, '_compact_form_widgets', []) or []:
+        FormGrid.fix_field(w)
+
+    from ui.button_effects import attach_press_animation_all
+    from ui.combo_effects import setup_all_combos
+    from ui.date_field_effects import setup_all_date_fields
+
+    attach_press_animation_all(page)
+    setup_all_combos(page)
+    setup_all_date_fields(page)
+
 
 def apply_theme_dynamic(app, theme_name='system'):
     """Применяет тему и принудительно обновляет все виджеты"""
@@ -1690,4 +2012,6 @@ def apply_theme_dynamic(app, theme_name='system'):
         widget.repaint()
 
     update_global_styles(effective_theme)
+    _enable_ui_animations(app)
+    app.setStyleSheet(get_app_global_stylesheet(effective_theme))
     return effective_theme

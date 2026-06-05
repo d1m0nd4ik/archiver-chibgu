@@ -7,8 +7,13 @@ from PySide6.QtWidgets import QSpinBox
 from PySide6.QtCore import Qt
 import html
 import os
-from ui.styles import STYLES, apply_theme_to_page, get_page_header_style, get_theme_colors
+from ui.styles import (
+    STYLES, apply_theme_to_page, get_page_header_style, get_theme_colors,
+    get_compact_combo_stylesheet, get_compact_date_stylesheet, get_spinbox_stylesheet,
+)
 from ui.form_layout import FormGrid
+from ui.button_effects import mark_compact_toolbar_button
+from ui.styles import get_compact_button_stylesheet
 from core.statistics_analyzer import StatisticsAnalyzer
 from core.statistics_exporter import StatisticsExporter
 from core.logging_config import logger
@@ -49,7 +54,6 @@ class StatsPage(QWidget):
         self.period_combo.addItems(["Час", "День", "Неделя", "Месяц", "Год", "Все время", "Свой диапазон"])
         self.period_combo.setCurrentText("День")
         self.period_combo.currentTextChanged.connect(self.on_period_changed)
-        self.period_combo.setStyleSheet(self.styles.get('combo', self.styles['input']))
         controls_layout.addWidget(self.period_combo, 0, 1)
 
         metric_lbl = FormGrid.make_label("Метрика:")
@@ -58,7 +62,6 @@ class StatsPage(QWidget):
         self.metric_combo = QComboBox()
         self.metric_combo.addItems(["Лайки", "Комментарии", "Репосты", "Популярность"])
         self.metric_combo.setCurrentText("Лайки")
-        self.metric_combo.setStyleSheet(self.styles.get('combo', self.styles['input']))
         controls_layout.addWidget(self.metric_combo, 0, 3)
 
         top_lbl = FormGrid.make_label("Показывать топ:")
@@ -67,7 +70,6 @@ class StatsPage(QWidget):
         self.top_n_spin = QSpinBox()
         self.top_n_spin.setRange(1, 200)
         self.top_n_spin.setValue(10)
-        self.top_n_spin.setStyleSheet(self.styles.get('spinbox', self.styles['input']))
         controls_layout.addWidget(self.top_n_spin, 0, 5)
 
         dfrom_lbl = FormGrid.make_label("Дата от:")
@@ -77,7 +79,6 @@ class StatsPage(QWidget):
         self.custom_start.setCalendarPopup(True)
         self.custom_start.setDate(datetime.datetime.now() - datetime.timedelta(days=30))
         self.custom_start.setEnabled(False)
-        self.custom_start.setStyleSheet(self.styles.get('date', self.styles['input']))
         controls_layout.addWidget(self.custom_start, 1, 1)
 
         dto_lbl = FormGrid.make_label("Дата до:")
@@ -87,28 +88,26 @@ class StatsPage(QWidget):
         self.custom_end.setCalendarPopup(True)
         self.custom_end.setDate(datetime.datetime.now())
         self.custom_end.setEnabled(False)
-        self.custom_end.setStyleSheet(self.styles.get('date', self.styles['input']))
         controls_layout.addWidget(self.custom_end, 1, 3)
 
-        for w in (
+        self._compact_form_widgets = [
             self.period_combo, self.metric_combo, self.top_n_spin,
             self.custom_start, self.custom_end,
-        ):
+        ]
+        self._apply_field_styles()
+        for w in self._compact_form_widgets:
             FormGrid.fix_field(w)
         FormGrid.sync_grid(controls_layout, labels=self._form_labels)
 
         self.refresh_btn = QPushButton("Обновить статистику")
-        self.refresh_btn.setStyleSheet(self.styles['button'])
         self.refresh_btn.clicked.connect(self.refresh_statistics)
         controls_layout.addWidget(self.refresh_btn, 2, 0, 1, 2)
 
         self.export_csv_btn = QPushButton("Экспорт CSV")
-        self.export_csv_btn.setStyleSheet(self.styles['button_secondary'])
         self.export_csv_btn.clicked.connect(self.export_csv)
         controls_layout.addWidget(self.export_csv_btn, 2, 2, 1, 2)
 
         self.export_excel_btn = QPushButton("Экспорт Excel")
-        self.export_excel_btn.setStyleSheet(self.styles['button_secondary'])
         self.export_excel_btn.clicked.connect(self.export_excel)
         controls_layout.addWidget(self.export_excel_btn, 2, 4, 1, 2)
 
@@ -132,17 +131,37 @@ class StatsPage(QWidget):
 
         self._primary_buttons = [self.refresh_btn]
         self._secondary_buttons = [self.export_csv_btn, self.export_excel_btn]
+        self._apply_button_styles()
+
+    def _apply_button_styles(self):
+        theme = getattr(STYLES, '_theme', None)
+        self._compact_toolbar_buttons = [
+            self.refresh_btn, self.export_csv_btn, self.export_excel_btn,
+        ]
+        mark_compact_toolbar_button(self.refresh_btn, primary=True)
+        self.refresh_btn.setStyleSheet(get_compact_button_stylesheet(True, theme))
+        for btn in (self.export_csv_btn, self.export_excel_btn):
+            mark_compact_toolbar_button(btn, primary=False)
+            btn.setStyleSheet(get_compact_button_stylesheet(False, theme))
+
+    def _apply_field_styles(self):
+        theme = getattr(STYLES, '_theme', None)
+        combo_style = get_compact_combo_stylesheet(theme)
+        date_style = get_compact_date_stylesheet(theme)
+        spin_style = get_spinbox_stylesheet(theme, compact=True)
+        for w in (self.period_combo, self.metric_combo):
+            w.setStyleSheet(combo_style)
+        from ui.date_field_effects import refresh_date_field
+
+        for w in (self.custom_start, self.custom_end):
+            w.setStyleSheet(date_style)
+            FormGrid.fix_field(w)
+            refresh_date_field(w)
+        self.top_n_spin.setStyleSheet(spin_style)
 
     def update_styles(self, styles):
         self.styles = styles
         apply_theme_to_page(self, styles)
-        for w in (
-            self.period_combo, self.metric_combo, self.top_n_spin,
-            self.custom_start, self.custom_end,
-        ):
-            FormGrid.fix_field(w)
-        if hasattr(self, '_controls_layout'):
-            FormGrid.sync_grid(self._controls_layout, labels=self._form_labels)
 
     def on_period_changed(self, value):
         """Активирует/деактивирует поля кастомных дат"""
