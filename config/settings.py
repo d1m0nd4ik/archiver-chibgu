@@ -1,7 +1,9 @@
 import os
 
-# Корень проекта (папка выше config/), чтобы Archive.db не зависел от текущей директории процесса
-_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+from config.paths import get_data_root_str
+
+# Корень пользовательских данных (рядом с exe в сборке, корень проекта при разработке)
+_PROJECT_ROOT = get_data_root_str()
 
 # База данных (абсолютный путь — одна и та же БД из UI, воркеров и отладчика)
 DB_NAME = os.path.join(_PROJECT_ROOT, "Archive.db")

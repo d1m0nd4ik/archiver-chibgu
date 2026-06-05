@@ -2,10 +2,11 @@ import os
 
 from dotenv import load_dotenv, set_key
 
+from config.paths import get_data_root
 from core.logging_config import logger
 
 
-ENV_FILE = ".env"
+ENV_FILE = os.fspath(get_data_root() / ".env")
 
 
 def ensure_env_file():

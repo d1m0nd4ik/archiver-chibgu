@@ -3,15 +3,15 @@ import os
 import tempfile
 from pathlib import Path
 
+from config.paths import get_data_root
 from core.logging_config import logger
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _COOKIE_FILE_NAMES = ("cookies.txt", "cookies_vk.txt", "vk_cookies.txt")
 _VK_COOKIE_MARKERS = (".vk.com", ".vk.ru", "vk.com\t", "vk.ru\t")
 
 
 def _project_root() -> Path:
-    return _PROJECT_ROOT
+    return get_data_root()
 
 
 def find_cookie_file() -> str | None:

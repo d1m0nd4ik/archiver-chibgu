@@ -5,9 +5,11 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QPixmap
 
+from config.paths import get_assets_dir, get_data_root
+
 APP_DISPLAY_NAME = "VK Archiver CHIBGU"
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-ASSETS_DIR = PROJECT_ROOT / "assets"
+PROJECT_ROOT = get_data_root()
+ASSETS_DIR = get_assets_dir()
 
 LOGO_WHITE = ASSETS_DIR / "Logo_white.png"      # шапка — тёмная тема
 LOGO_BLACK = ASSETS_DIR / "Logo_black.png"      # шапка — светлая тема
@@ -55,6 +57,8 @@ def _build_program_ico() -> None:
 
 
 def _ensure_program_ico() -> None:
+    if getattr(sys, "frozen", False):
+        return
     if not LOGO_PROGRAM.exists():
         return
     if LOGO_PROGRAM_ICO.exists():

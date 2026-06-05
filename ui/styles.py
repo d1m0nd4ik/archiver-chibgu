@@ -536,7 +536,9 @@ def get_theme_toggle_button_styles(theme=None, *, light_selected: bool) -> str:
     """)
 
 
-_ARROW_CACHE_DIR = Path(__file__).resolve().parent / "_arrow_cache"
+from config.paths import get_data_root
+
+_ARROW_CACHE_DIR = get_data_root() / ".cache" / "arrow"
 _ARROW_URL_CACHE: dict[str, str] = {}
 
 
