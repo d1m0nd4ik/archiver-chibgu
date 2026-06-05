@@ -5,7 +5,7 @@ import yt_dlp
 from PIL import Image
 from config.settings import DATA_DIR
 from core.logging_config import logger
-from core.vk_cookies import apply_cookie_strategy, iter_ytdlp_cookie_strategies
+from core.vk_cookies import apply_cookie_strategy, build_vk_download_session, iter_ytdlp_cookie_strategies
 
 class MediaProcessor:
 
@@ -26,19 +26,25 @@ class MediaProcessor:
         return "0 MB"
 
     @staticmethod
-    def download_file(url, path):
-        """Простое скачивание файла по URL"""
+    def download_file(url, path, session=None, soft_fail=False):
+        """Простое скачивание файла по URL."""
         try:
             if os.path.exists(path):
                 return True
 
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'User-Agent': (
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                    'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                ),
             }
-            if 'vk.' in url or 'vkuseraudio' in url or 'mycdn' in url:
+            if 'vk.' in url or 'vkuseraudio' in url or 'mycdn' in url or 'okcdn.ru' in url:
                 headers['Referer'] = 'https://vk.com/'
+                headers['Origin'] = 'https://vk.com'
+                headers['Accept'] = '*/*'
 
-            r = requests.get(url, stream=True, headers=headers, timeout=120)
+            client = session or requests
+            r = client.get(url, stream=True, headers=headers, timeout=120)
             r.raise_for_status()
 
             with open(path, 'wb') as f:
@@ -48,7 +54,10 @@ class MediaProcessor:
 
             return True
         except Exception as e:
-            logger.error("Download Error: %s", e, exc_info=True)
+            if soft_fail:
+                logger.debug("Direct download failed: %s", e)
+            else:
+                logger.error("Download Error: %s", e, exc_info=True)
             return False
 
     @staticmethod

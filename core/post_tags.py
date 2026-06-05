@@ -5,18 +5,36 @@ import re
 from core.logging_config import logger
 from core.smart_tagger import SmartTagger
 from core.content_tagger import ContentTagger
+from core.employee_tagger import teacher_hashtag_lookup_key
 from core.nlp_processor import normalize_hashtag, dedupe_hashtags
 
+_TEACHER_HT_IN_TEXT = re.compile(r'#[A-Za-zА-Яа-яЁё0-9_]+')
+
+
+def _teacher_hashtag_exclude_words(text: str, tagger) -> set[str]:
+    words: set[str] = set()
+    for tag in tagger.extract_teacher_hashtags(text):
+        for part in tag.lstrip('#').split('_'):
+            part = part.lower().replace('ё', 'е')
+            if len(part) >= 3:
+                words.add(part)
+    return words
+
+
 _TEACHER_HT_RE = re.compile(r'#([A-Za-zА-Яа-яЁё0-9_]+)')
+
+
+def _strip_teacher_hashtags(text: str) -> str:
+    return _TEACHER_HT_IN_TEXT.sub(' ', text)
 
 
 def is_teacher_hashtag_in_text(text: str, teacher_hashtag: str | None) -> bool:
     """Хэштег преподавателя должен буквально присутствовать в тексте поста."""
     if not text or not teacher_hashtag:
         return False
-    key = normalize_hashtag(teacher_hashtag).lower().replace('ё', 'е')
+    key = teacher_hashtag_lookup_key(teacher_hashtag)
     for raw in _TEACHER_HT_RE.findall(text):
-        if normalize_hashtag(raw).lower().replace('ё', 'е') == key:
+        if teacher_hashtag_lookup_key(raw) == key:
             return True
     return False
 
@@ -63,13 +81,16 @@ def build_content_tags(
     reserved: set[str],
 ) -> list[str]:
     """Словарь + умное извлечение из текста для поиска."""
-    exclude_words = set()
+    exclude_words = _teacher_hashtag_exclude_words(text, tagger)
     for name in tagger.find_employees_in_text(text):
         for part in name.split():
             exclude_words.add(part.lower().replace('ё', 'е'))
 
     return _content_tagger.build(
-        text, smart, exclude_words=exclude_words, reserved_hashtags=reserved
+        _strip_teacher_hashtags(text),
+        smart,
+        exclude_words=exclude_words,
+        reserved_hashtags=reserved,
     )
 
 

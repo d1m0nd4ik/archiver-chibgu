@@ -128,5 +128,73 @@ class TestSchedulerPipeline(unittest.TestCase):
             os.unlink(path)
 
 
+class TestTeacherHashtagMatching(unittest.TestCase):
+    def test_match_post_hashtag_without_numeric_suffix(self):
+        from core.employee_tagger import (
+            EmployeeTagger,
+            build_teacher_hashtag_base,
+            teacher_hashtag_lookup_key,
+        )
+        from core.post_tags import build_post_tags, resolve_author_and_department
+
+        path = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+        db = _fresh_db(path)
+        try:
+            dept = db.upsert_department("Тестовая кафедра", hashtag="#Тестовая_Кафедра")
+            full_name = "Севостьянова Елена Васильевна"
+            stored_hashtag = build_teacher_hashtag_base(full_name) + "_1"
+            db.upsert_employee(
+                full_name=full_name,
+                normalized_name=full_name.lower(),
+                surname="Севостьянова",
+                firstname="Елена",
+                patronymic="Васильевна",
+                hashtag=stored_hashtag,
+                department_id=dept["id"],
+            )
+            tagger = EmployeeTagger(db)
+            text = "С Днем города!\n#Севостьянова_Е_В"
+            employee = tagger.find_employee_by_hashtag("#Севостьянова_Е_В")
+            self.assertIsNotNone(employee)
+            self.assertEqual(
+                teacher_hashtag_lookup_key(employee["hashtag"]),
+                teacher_hashtag_lookup_key("#Севостьянова_Е_В"),
+            )
+            teacher_ht, dept_ht, emp_id, dept_id = resolve_author_and_department(tagger, text)
+            self.assertIsNotNone(teacher_ht)
+            self.assertIsNotNone(emp_id)
+            tags_str, *_ = build_post_tags(text, tagger)
+            self.assertNotIn("#севостьянов", tags_str.lower())
+        finally:
+            db.close()
+            Database._instances.clear()
+            os.unlink(path)
+
+
+class TestDepartmentHashtagMatching(unittest.TestCase):
+    def test_repair_department_hashtag_suffix(self):
+        from core.employee_tagger import (
+            EmployeeTagger,
+            build_department_hashtag_base,
+            repair_department_hashtag_suffixes,
+        )
+
+        path = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+        db = _fresh_db(path)
+        try:
+            name = "Кафедра иностранных языков"
+            stored = build_department_hashtag_base(name) + "_1"
+            db.upsert_department(name, hashtag=stored, url="https://example.com/dept")
+            self.assertEqual(repair_department_hashtag_suffixes(db), 1)
+            dept = db.get_department_by_name(name)
+            self.assertEqual(dept["hashtag"], build_department_hashtag_base(name))
+            EmployeeTagger(db)
+            self.assertEqual(db.get_department_by_name(name)["hashtag"], build_department_hashtag_base(name))
+        finally:
+            db.close()
+            Database._instances.clear()
+            os.unlink(path)
+
+
 if __name__ == "__main__":
     unittest.main()

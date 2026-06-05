@@ -8,6 +8,7 @@ from core.smart_tagger import SmartTagger
 from core.post_tags import build_post_tags
 from core.media_processor import MediaProcessor
 from core.url_parser import VKUrlParser
+from core.vk_cookies import build_vk_download_session, find_cookie_file, is_vk_cdn_url
 from core.vk_token import TOKEN_INVALID_MSG, is_auth_error
 from config.settings import DATA_DIR, VK_API_VERSION
 from core.logging_config import logger
@@ -159,11 +160,21 @@ class VKDownloader:
                 video_owner_id, video_id, access_key=access_key, fallback_video_data=fallback_video_data
             )
             if direct_url:
-                logger.info("[VK] Прямая ссылка MP4 (video.get)")
-                if self.processor.download_file(direct_url, output_path):
-                    logger.info("[VK] Видео успешно: %s", output_path)
-                    return output_path
-                logger.warning("[VK] Прямое скачивание не удалось, пробуем yt-dlp")
+                skip_direct = is_vk_cdn_url(direct_url) and not find_cookie_file()
+                if skip_direct:
+                    logger.debug(
+                        "[VK] CDN-ссылка без cookies.txt — сразу yt-dlp (%s…)",
+                        direct_url[:60],
+                    )
+                else:
+                    session = build_vk_download_session() if is_vk_cdn_url(direct_url) else None
+                    logger.info("[VK] Прямая ссылка MP4 (video.get)")
+                    if self.processor.download_file(
+                        direct_url, output_path, session=session, soft_fail=True
+                    ):
+                        logger.info("[VK] Видео успешно: %s", output_path)
+                        return output_path
+                    logger.debug("[VK] Прямое скачивание не удалось, пробуем yt-dlp")
 
             page_url = self._resolve_page_url(
                 video_owner_id, video_id, access_key=access_key, fallback_video_data=fallback_video_data

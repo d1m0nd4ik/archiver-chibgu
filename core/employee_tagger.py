@@ -36,6 +36,16 @@ def normalize_hashtag(value: str) -> str:
     return re.sub(r'[^#A-Za-zА-Яа-яЁё0-9_]', '', value)
 
 
+def hashtag_lookup_key(value: str) -> str:
+    """Ключ для сопоставления: без # и без суффикса _1, _2 при повторной синхронизации."""
+    key = normalize_hashtag(value).lower().lstrip('#')
+    return re.sub(r'_(\d+)$', '', key)
+
+
+teacher_hashtag_lookup_key = hashtag_lookup_key
+department_hashtag_lookup_key = hashtag_lookup_key
+
+
 def _slugify_word(value: str) -> str:
     return re.sub(r'[^A-Za-zА-Яа-яЁё0-9]', '', value)
 
@@ -54,7 +64,8 @@ def _ensure_unique_hashtag(base: str, existing_tags=None) -> str:
         counter += 1
 
 
-def make_department_hashtag(department_name: str, existing_hashtags=None) -> str:
+def build_department_hashtag_base(department_name: str) -> str:
+    """Канонический хэштег кафедры без суффикса _1."""
     if not department_name:
         return ''
     name = normalize_name(department_name)
@@ -63,11 +74,18 @@ def make_department_hashtag(department_name: str, existing_hashtags=None) -> str
     if not parts:
         return ''
     parts = [p.capitalize() for p in parts]
-    base = '#' + '_'.join(parts)
+    return normalize_hashtag('#' + '_'.join(parts))
+
+
+def make_department_hashtag(department_name: str, existing_hashtags=None) -> str:
+    base = build_department_hashtag_base(department_name)
+    if not base:
+        return ''
     return _ensure_unique_hashtag(base, existing_hashtags)
 
 
-def make_teacher_hashtag(full_name: str, existing_hashtags=None) -> str:
+def build_teacher_hashtag_base(full_name: str) -> str:
+    """Канонический хэштег преподавателя: #Фамилия_И_О (без суффикса _1)."""
     if not full_name:
         return ''
     full_name = normalize_name(full_name)
@@ -84,6 +102,13 @@ def make_teacher_hashtag(full_name: str, existing_hashtags=None) -> str:
             base = f"#{surname}_{firstname[0].upper()}"
     else:
         base = f"#{surname}"
+    return normalize_hashtag(base)
+
+
+def make_teacher_hashtag(full_name: str, existing_hashtags=None) -> str:
+    base = build_teacher_hashtag_base(full_name)
+    if not base:
+        return ''
     return _ensure_unique_hashtag(base, existing_hashtags)
 
 
@@ -340,6 +365,91 @@ def fetch_departments_index(progress_callback=None) -> tuple:
     raise RuntimeError(f'Не удалось получить список кафедр: {last_error}')
 
 
+def repair_employee_hashtag_suffixes(db: Database) -> int:
+    """Убирает лишний _1/_2, если для базовой формы нет одноимённого преподавателя."""
+    from collections import defaultdict
+
+    employees = db.get_all_employee_details()
+    if not employees:
+        return 0
+
+    by_lookup: dict[str, list] = defaultdict(list)
+    for emp in employees:
+        by_lookup[teacher_hashtag_lookup_key(emp.get('hashtag') or '')].append(emp)
+
+    repaired = 0
+    cursor = db._get_cursor()
+    for lookup_key, group in by_lookup.items():
+        if not lookup_key:
+            continue
+        canonical_holders = [
+            e for e in group
+            if not re.search(r'_(\d+)$', e.get('hashtag') or '')
+        ]
+        if canonical_holders:
+            continue
+        if len(group) != 1:
+            continue
+        emp = group[0]
+        canonical = build_teacher_hashtag_base(emp.get('full_name') or '')
+        if not canonical or teacher_hashtag_lookup_key(canonical) != lookup_key:
+            continue
+        cursor.execute(
+            "UPDATE employees SET hashtag = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (canonical, emp['id']),
+        )
+        repaired += 1
+    if repaired:
+        db._get_conn().commit()
+    return repaired
+
+
+def repair_department_hashtag_suffixes(db: Database) -> int:
+    """Убирает лишний _1/_2 у хэштегов кафедр и обновляет посты."""
+    from collections import defaultdict
+
+    departments = db.get_departments()
+    if not departments:
+        return 0
+
+    by_lookup: dict[str, list] = defaultdict(list)
+    for dept in departments:
+        by_lookup[hashtag_lookup_key(dept.get('hashtag') or '')].append(dept)
+
+    repaired = 0
+    cursor = db._get_cursor()
+    for lookup_key, group in by_lookup.items():
+        if not lookup_key:
+            continue
+        canonical_holders = [
+            d for d in group
+            if not re.search(r'_(\d+)$', d.get('hashtag') or '')
+        ]
+        if canonical_holders:
+            continue
+        if len(group) != 1:
+            continue
+        dept = group[0]
+        canonical = build_department_hashtag_base(dept.get('name') or '')
+        if not canonical or hashtag_lookup_key(canonical) != lookup_key:
+            continue
+        old_hashtag = dept.get('hashtag') or ''
+        if old_hashtag == canonical:
+            continue
+        cursor.execute(
+            "UPDATE departments SET hashtag = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (canonical, dept['id']),
+        )
+        cursor.execute(
+            "UPDATE posts SET department_hashtag = ? WHERE department_hashtag = ?",
+            (canonical, old_hashtag),
+        )
+        repaired += 1
+    if repaired:
+        db._get_conn().commit()
+    return repaired
+
+
 def _upsert_department_employees(db, department, employees, source_url, used_employee_hashtags, fetched_names, lines, progress_callback):
     for full_name in employees:
         clean_full_name = normalize_person_name(full_name)
@@ -352,7 +462,11 @@ def _upsert_department_employees(db, department, employees, source_url, used_emp
         surname = parts[0] if len(parts) > 0 else ''
         firstname = parts[1] if len(parts) > 1 else ''
         patronymic = parts[2] if len(parts) > 2 else ''
-        teacher_hashtag = make_teacher_hashtag(clean_full_name, used_employee_hashtags)
+        existing = db.get_employee_by_normalized_name(normalized_full_name)
+        if existing and existing.get('hashtag'):
+            teacher_hashtag = existing['hashtag']
+        else:
+            teacher_hashtag = make_teacher_hashtag(clean_full_name, used_employee_hashtags)
         used_employee_hashtags.add(teacher_hashtag)
 
         db.upsert_employee(
@@ -409,6 +523,13 @@ def sync_departments_to_db(db: Database = None, main_url: str = None, extra_urls
             departments, index_url = fetch_departments_index(progress_callback=emit)
 
         used_department_hashtags = {d['hashtag'] for d in db.get_departments() if d.get('hashtag')}
+        repaired_emp = repair_employee_hashtag_suffixes(db)
+        if repaired_emp:
+            emit(f'Исправлено хэштегов преподавателей: {repaired_emp}')
+        repaired_dept = repair_department_hashtag_suffixes(db)
+        if repaired_dept:
+            emit(f'Исправлено хэштегов кафедр: {repaired_dept}')
+            used_department_hashtags = {d['hashtag'] for d in db.get_departments() if d.get('hashtag')}
         used_employee_hashtags = {e['hashtag'] for e in db.get_all_employee_details() if e.get('hashtag')}
         fetched_names = set()
         total = len(departments)
@@ -423,7 +544,11 @@ def sync_departments_to_db(db: Database = None, main_url: str = None, extra_urls
                 page_name, employees = extract_department_page(department_html, url)
                 department_name = dept_info.get('name') or page_name
                 department_name = normalize_name(department_name)
-                department_hashtag = make_department_hashtag(department_name, used_department_hashtags)
+                existing_dept = db.get_department_by_name(department_name)
+                if existing_dept and existing_dept.get('hashtag'):
+                    department_hashtag = existing_dept['hashtag']
+                else:
+                    department_hashtag = make_department_hashtag(department_name, used_department_hashtags)
                 used_department_hashtags.add(department_hashtag)
                 department = db.upsert_department(department_name, hashtag=department_hashtag, url=url)
                 if not department:
@@ -442,7 +567,11 @@ def sync_departments_to_db(db: Database = None, main_url: str = None, extra_urls
         try:
             college_html = fetch_page(COLLEGE_TEACHERS_URL)
             college_employees = extract_college_teachers(college_html)
-            college_hashtag = make_department_hashtag(COLLEGE_DEPARTMENT_NAME, used_department_hashtags)
+            existing_college = db.get_department_by_name(COLLEGE_DEPARTMENT_NAME)
+            if existing_college and existing_college.get('hashtag'):
+                college_hashtag = existing_college['hashtag']
+            else:
+                college_hashtag = make_department_hashtag(COLLEGE_DEPARTMENT_NAME, used_department_hashtags)
             used_department_hashtags.add(college_hashtag)
             college_dept = db.upsert_department(
                 COLLEGE_DEPARTMENT_NAME, hashtag=college_hashtag, url=COLLEGE_TEACHERS_URL
@@ -544,6 +673,16 @@ class EmployeeTagger:
             )
 
     def _load_db(self):
+        try:
+            repaired_emp = repair_employee_hashtag_suffixes(self.db)
+            if repaired_emp:
+                logger.info("Исправлено хэштегов преподавателей: %s", repaired_emp)
+            repaired_dept = repair_department_hashtag_suffixes(self.db)
+            if repaired_dept:
+                logger.info("Исправлено хэштегов кафедр: %s", repaired_dept)
+        except Exception as error:
+            logger.debug("repair hashtag suffixes: %s", error)
+
         self.profiles = []
         self.name_index.clear()
         self.hashtag_index.clear()
@@ -574,6 +713,9 @@ class EmployeeTagger:
             if hashtag:
                 normalized_hashtag = normalize_hashtag(hashtag).lower()
                 self.hashtag_index[normalized_hashtag] = raw
+                base_key = teacher_hashtag_lookup_key(hashtag)
+                if base_key and base_key not in self.hashtag_index:
+                    self.hashtag_index[base_key] = raw
 
     def _prepare_name_profile(self, full_name: str) -> dict:
         parts = [p for p in full_name.split() if p]
@@ -626,7 +768,10 @@ class EmployeeTagger:
     def find_employee_by_hashtag(self, hashtag: str):
         if not hashtag:
             return None
-        return self.hashtag_index.get(normalize_hashtag(hashtag).lower())
+        exact = normalize_hashtag(hashtag).lower()
+        if exact in self.hashtag_index:
+            return self.hashtag_index[exact]
+        return self.hashtag_index.get(teacher_hashtag_lookup_key(hashtag))
 
     def find_employee_by_name(self, full_name: str):
         if not full_name:

@@ -252,6 +252,10 @@ class NLPProcessor:
         word = normalize_text(word).strip('-_')
         if not word or word.isdigit():
             return ''
+        if len(word) > 4 and re.search(
+            r'(ова|ева|ёва|ина|ына|ская|цкая|ая)$', word
+        ):
+            return word
         parsed = self._parse_word(word)
         if parsed:
             return parsed.normal_form.replace('ё', 'е')

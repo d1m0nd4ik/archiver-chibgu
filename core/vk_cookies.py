@@ -1,7 +1,10 @@
-"""Cookies VK для yt-dlp: файл cookies.txt или чтение из браузера (опционально)."""
+"""Cookies VK для yt-dlp и прямого скачивания с CDN."""
 import os
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
+
+import requests
 
 from config.paths import get_data_root
 from core.logging_config import logger
@@ -124,3 +127,50 @@ def apply_cookie_strategy(ydl_opts: dict, strategy_opts: dict) -> dict:
     merged.pop("cookiesfrombrowser", None)
     merged.update(strategy_opts)
     return merged
+
+
+_VK_CDN_HOST_MARKERS = (
+    "okcdn.ru",
+    "vkuser.net",
+    "vkuseraudio.net",
+    "mycdn.me",
+    "vk-cdn",
+    "userapi.com",
+)
+
+
+def is_vk_cdn_url(url: str) -> bool:
+    if not url:
+        return False
+    host = urlparse(url).netloc.lower()
+    return any(marker in host for marker in _VK_CDN_HOST_MARKERS)
+
+
+def build_vk_download_session() -> requests.Session | None:
+    """Session с cookies для прямого скачивания с CDN VK (если есть cookies.txt)."""
+    cookie_file = find_cookie_file()
+    if not cookie_file or not is_valid_cookie_file(cookie_file):
+        return None
+    try:
+        from http.cookiejar import MozillaCookieJar
+
+        session = requests.Session()
+        session.headers.update(
+            {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Referer": "https://vk.com/",
+                "Origin": "https://vk.com",
+                "Accept": "*/*",
+            }
+        )
+        jar = MozillaCookieJar(cookie_file)
+        jar.load(ignore_discard=True, ignore_expires=True)
+        session.cookies = jar
+        return session
+    except Exception as e:
+        logger.debug("build_vk_download_session: %s", e)
+        return None
