@@ -7,7 +7,8 @@ from PySide6.QtWidgets import QSpinBox
 from PySide6.QtCore import Qt
 import html
 import os
-from ui.styles import STYLES, apply_theme_to_page
+from ui.styles import STYLES, apply_theme_to_page, get_page_header_style, get_theme_colors
+from ui.form_layout import FormGrid
 from core.statistics_analyzer import StatisticsAnalyzer
 from core.statistics_exporter import StatisticsExporter
 from core.logging_config import logger
@@ -19,6 +20,7 @@ class StatsPage(QWidget):
         self.styles = styles or STYLES.get_styles()
         self.analyzer = StatisticsAnalyzer()
         self.exporter = StatisticsExporter()
+        self._form_labels: list[QLabel] = []
         self.init_ui()
         self.refresh_statistics()
 
@@ -29,18 +31,20 @@ class StatsPage(QWidget):
 
         # Заголовок
         header = QLabel("Статистика постов")
-        text_color = '#000000' if STYLES._theme == 'light' else '#ffffff'
-        header.setStyleSheet(f"color: {text_color}; font-size: 22px; font-weight: bold; padding: 10px 0;")
+        header.setStyleSheet(get_page_header_style())
         self.header_label = header
         layout.addWidget(header)
 
         # Панель управления
         controls_frame = QFrame()
         controls_frame.setStyleSheet(self.styles['frame'])
-        controls_layout = QGridLayout(controls_frame)
-        controls_layout.setSpacing(16)
+        self._controls_layout = QGridLayout(controls_frame)
+        controls_layout = self._controls_layout
+        FormGrid.setup_multi_field_grid(controls_layout)
 
-        controls_layout.addWidget(QLabel("Период: "), 0, 0)
+        period_lbl = FormGrid.make_label("Период:")
+        self._form_labels.append(period_lbl)
+        controls_layout.addWidget(period_lbl, 0, 0)
         self.period_combo = QComboBox()
         self.period_combo.addItems(["Час", "День", "Неделя", "Месяц", "Год", "Все время", "Свой диапазон"])
         self.period_combo.setCurrentText("День")
@@ -48,22 +52,27 @@ class StatsPage(QWidget):
         self.period_combo.setStyleSheet(self.styles.get('combo', self.styles['input']))
         controls_layout.addWidget(self.period_combo, 0, 1)
 
-        controls_layout.addWidget(QLabel("Метрика: "), 0, 2)
+        metric_lbl = FormGrid.make_label("Метрика:")
+        self._form_labels.append(metric_lbl)
+        controls_layout.addWidget(metric_lbl, 0, 2)
         self.metric_combo = QComboBox()
         self.metric_combo.addItems(["Лайки", "Комментарии", "Репосты", "Популярность"])
         self.metric_combo.setCurrentText("Лайки")
         self.metric_combo.setStyleSheet(self.styles.get('combo', self.styles['input']))
         controls_layout.addWidget(self.metric_combo, 0, 3)
 
-        # Top-N selector
-        controls_layout.addWidget(QLabel("Показывать топ:"), 0, 4)
+        top_lbl = FormGrid.make_label("Показывать топ:")
+        self._form_labels.append(top_lbl)
+        controls_layout.addWidget(top_lbl, 0, 4)
         self.top_n_spin = QSpinBox()
         self.top_n_spin.setRange(1, 200)
         self.top_n_spin.setValue(10)
-        self.top_n_spin.setStyleSheet(self.styles.get('input', ''))
+        self.top_n_spin.setStyleSheet(self.styles.get('spinbox', self.styles['input']))
         controls_layout.addWidget(self.top_n_spin, 0, 5)
 
-        controls_layout.addWidget(QLabel("Дата от: "), 1, 0)
+        dfrom_lbl = FormGrid.make_label("Дата от:")
+        self._form_labels.append(dfrom_lbl)
+        controls_layout.addWidget(dfrom_lbl, 1, 0)
         self.custom_start = QDateEdit()
         self.custom_start.setCalendarPopup(True)
         self.custom_start.setDate(datetime.datetime.now() - datetime.timedelta(days=30))
@@ -71,13 +80,22 @@ class StatsPage(QWidget):
         self.custom_start.setStyleSheet(self.styles.get('date', self.styles['input']))
         controls_layout.addWidget(self.custom_start, 1, 1)
 
-        controls_layout.addWidget(QLabel("Дата до: "), 1, 2)
+        dto_lbl = FormGrid.make_label("Дата до:")
+        self._form_labels.append(dto_lbl)
+        controls_layout.addWidget(dto_lbl, 1, 2)
         self.custom_end = QDateEdit()
         self.custom_end.setCalendarPopup(True)
         self.custom_end.setDate(datetime.datetime.now())
         self.custom_end.setEnabled(False)
         self.custom_end.setStyleSheet(self.styles.get('date', self.styles['input']))
         controls_layout.addWidget(self.custom_end, 1, 3)
+
+        for w in (
+            self.period_combo, self.metric_combo, self.top_n_spin,
+            self.custom_start, self.custom_end,
+        ):
+            FormGrid.fix_field(w)
+        FormGrid.sync_grid(controls_layout, labels=self._form_labels)
 
         self.refresh_btn = QPushButton("Обновить статистику")
         self.refresh_btn.setStyleSheet(self.styles['button'])
@@ -112,11 +130,19 @@ class StatsPage(QWidget):
         layout.addWidget(results_frame)
         layout.addStretch()
 
+        self._primary_buttons = [self.refresh_btn]
         self._secondary_buttons = [self.export_csv_btn, self.export_excel_btn]
 
     def update_styles(self, styles):
         self.styles = styles
         apply_theme_to_page(self, styles)
+        for w in (
+            self.period_combo, self.metric_combo, self.top_n_spin,
+            self.custom_start, self.custom_end,
+        ):
+            FormGrid.fix_field(w)
+        if hasattr(self, '_controls_layout'):
+            FormGrid.sync_grid(self._controls_layout, labels=self._form_labels)
 
     def on_period_changed(self, value):
         """Активирует/деактивирует поля кастомных дат"""
@@ -173,7 +199,7 @@ class StatsPage(QWidget):
         if not posts:
             return "<i>Нет данных за выбранный период.</i>"
 
-        text_color = '#000000' if STYLES._theme == 'light' else '#ffffff'
+        text_color = get_theme_colors()['text']
         parts = [f'<div style="font-family: sans-serif; color: {text_color};">']
         for idx, post in enumerate(posts, start=1):
             date = html.escape(str(post.get('date') or ''))

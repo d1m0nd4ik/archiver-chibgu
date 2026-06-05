@@ -1,6 +1,14 @@
 from PySide6.QtWidgets import QPushButton, QFrame, QLabel, QHBoxLayout, QVBoxLayout
 from PySide6.QtCore import Signal, Qt
-from ui.styles import STYLES
+from ui.styles import (
+    STYLES,
+    get_nav_button_stylesheet,
+    get_sidebar_stylesheet,
+    get_header_widget_stylesheet,
+    get_header_title_style,
+    get_sidebar_section_label_style,
+    get_theme_colors,
+)
 from ui.ui_scale import UiScale, scale_stylesheet
 from core.app_icon import get_logo_pixmap
 
@@ -22,57 +30,7 @@ class NavigationButton(QPushButton):
     def update_style(self, theme=None):
         if theme:
             self.theme = theme
-
-        fs = UiScale.px(14)
-        pad_v = UiScale.px(12)
-        pad_h = UiScale.px(20)
-        radius = UiScale.px(8)
-
-        if self.theme == 'light':
-            qss = f"""
-                QPushButton {{
-                    background-color: transparent;
-                    color: #000000;
-                    border: 2px solid transparent;
-                    border-radius: {radius}px;
-                    padding: {pad_v}px {pad_h}px;
-                    text-align: left;
-                    font-size: {fs}px;
-                    font-weight: 500;
-                }}
-                QPushButton:hover {{
-                    background-color: #e0e0e0;
-                    border: 2px solid #999999;
-                }}
-                QPushButton:checked {{
-                    background-color: #3a7bd5;
-                    color: white;
-                    border: 2px solid #2c5aa0;
-                }}
-            """
-        else:
-            qss = f"""
-                QPushButton {{
-                    background-color: transparent;
-                    color: #d4d4d4;
-                    border: 2px solid transparent;
-                    border-radius: {radius}px;
-                    padding: {pad_v}px {pad_h}px;
-                    text-align: left;
-                    font-size: {fs}px;
-                    font-weight: 500;
-                }}
-                QPushButton:hover {{
-                    background-color: #3a3a3a;
-                    border: 2px solid #555555;
-                }}
-                QPushButton:checked {{
-                    background-color: #3a7bd5;
-                    color: white;
-                    border: 2px solid #2c5aa0;
-                }}
-            """
-        self.setStyleSheet(qss)
+        self.setStyleSheet(get_nav_button_stylesheet(self.theme))
 
     def on_clicked(self):
         self.clicked_signal.emit(self.page_name)
@@ -97,23 +55,9 @@ class HeaderWidget(QFrame):
     def update_style(self, theme=None):
         if theme:
             self.theme = theme
-
-        if self.theme == 'light':
-            self.setStyleSheet("""
-                #HeaderWidget {
-                    background-color: #ffffff;
-                    border-bottom: 2px solid #3a7bd5;
-                }
-            """)
-        else:
-            self.setStyleSheet("""
-                #HeaderWidget {
-                    background-color: #1e1e1e;
-                    border-bottom: 2px solid #3a7bd5;
-                }
-            """)
+        self.setStyleSheet(get_header_widget_stylesheet(self.theme))
         if self.title_label:
-            self.title_label.setStyleSheet(self._get_title_style())
+            self.title_label.setStyleSheet(get_header_title_style(self.theme))
 
     def init_ui(self):
         layout = QHBoxLayout(self)
@@ -128,7 +72,7 @@ class HeaderWidget(QFrame):
         self._set_logo_pixmap()
 
         self.title_label = QLabel("VK Archiver CHIBGU")
-        self.title_label.setStyleSheet(self._get_title_style())
+        self.title_label.setStyleSheet(get_header_title_style(self.theme))
 
         title_layout.addWidget(self.logo_label)
         title_layout.addWidget(self.title_label)
@@ -136,11 +80,6 @@ class HeaderWidget(QFrame):
 
         layout.addLayout(title_layout)
         layout.addStretch()
-
-    def _get_title_style(self):
-        fs = UiScale.font_header_widget()
-        color = '#000000' if self.theme == 'light' else '#ffffff'
-        return f"color: {color}; font-size: {fs}px; font-weight: bold;"
 
     def _set_logo_pixmap(self):
         size = UiScale.logo_size()
@@ -154,7 +93,7 @@ class HeaderWidget(QFrame):
         self.update_style(theme)
         self._set_logo_pixmap()
         if self.title_label:
-            self.title_label.setStyleSheet(self._get_title_style())
+            self.title_label.setStyleSheet(get_header_title_style(self.theme))
 
 
 class SidebarWidget(QFrame):
@@ -176,25 +115,16 @@ class SidebarWidget(QFrame):
     def update_style(self, theme=None):
         if theme:
             self.theme = theme
-
-        if self.theme == 'light':
-            self.setStyleSheet("""
-                #SidebarWidget {
-                    background-color: #f5f5f5;
-                    border-right: 2px solid #dddddd;
-                }
-            """)
-        else:
-            self.setStyleSheet("""
-                #SidebarWidget {
-                    background-color: #252525;
-                    border-right: 2px solid #333333;
-                }
-            """)
+        self.setStyleSheet(get_sidebar_stylesheet(self.theme))
         for label in self._section_labels:
-            label.setStyleSheet(self._get_section_label_style())
+            label.setStyleSheet(get_sidebar_section_label_style(self.theme))
         if self._version_label:
-            self._version_label.setStyleSheet(self._get_version_label_style())
+            c = get_theme_colors(self.theme)
+            fs = UiScale.font_small()
+            pad = UiScale.px(10)
+            self._version_label.setStyleSheet(
+                f"color: {c['text_muted']}; font-size: {fs}px; padding: {pad}px;"
+            )
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -202,53 +132,57 @@ class SidebarWidget(QFrame):
         layout.setSpacing(UiScale.px(5))
 
         main_label = QLabel("ОСНОВНОЕ")
-        main_label.setStyleSheet(self._get_section_label_style())
+        main_label.setStyleSheet(get_sidebar_section_label_style(self.theme))
         self._section_labels.append(main_label)
         layout.addWidget(main_label)
 
         self.buttons = {}
+        self.buttons['dashboard'] = NavigationButton("", "Сводка", "dashboard", self.theme)
         self.buttons['download'] = NavigationButton("", "Загрузка контента", "download", self.theme)
         self.buttons['search'] = NavigationButton("", "Поиск в архиве", "search", self.theme)
         self.buttons['stats'] = NavigationButton("", "Статистика постов", "stats", self.theme)
         self.buttons['storage'] = NavigationButton("", "Хранилище постов", "storage", self.theme)
         self.buttons['teachers'] = NavigationButton("", "Преподаватели в постах", "teachers", self.theme)
 
-        for key in ('download', 'search', 'stats', 'storage', 'teachers'):
+        for key in ('dashboard', 'download', 'search', 'stats', 'storage', 'teachers'):
+            layout.addWidget(self.buttons[key])
+
+        layout.addSpacing(UiScale.px(20))
+
+        ref_label = QLabel("СПРАВОЧНИКИ")
+        ref_label.setStyleSheet(get_sidebar_section_label_style(self.theme))
+        self._section_labels.append(ref_label)
+        layout.addWidget(ref_label)
+
+        self.buttons['departments'] = NavigationButton("", "Кафедры и преподаватели", "departments", self.theme)
+        self.buttons['tags'] = NavigationButton("", "Тэги", "tags", self.theme)
+        self.buttons['posts_manage'] = NavigationButton("", "Управление постами", "posts_manage", self.theme)
+
+        for key in ('departments', 'tags', 'posts_manage'):
             layout.addWidget(self.buttons[key])
 
         layout.addSpacing(UiScale.px(20))
 
         settings_label = QLabel("НАСТРОЙКИ")
-        settings_label.setStyleSheet(self._get_section_label_style())
+        settings_label.setStyleSheet(get_sidebar_section_label_style(self.theme))
         self._section_labels.append(settings_label)
         layout.addWidget(settings_label)
 
-        self.buttons['departments'] = NavigationButton("", "Кафедры и преподаватели", "departments", self.theme)
         self.buttons['settings'] = NavigationButton("", "Настройки приложения", "settings", self.theme)
         self.buttons['about'] = NavigationButton("", "О программе", "about", self.theme)
 
-        for key in ('departments', 'settings', 'about'):
+        for key in ('settings', 'about'):
             layout.addWidget(self.buttons[key])
 
         layout.addStretch()
 
         self._version_label = QLabel("v1.0.0")
-        self._version_label.setStyleSheet(self._get_version_label_style())
-        layout.addWidget(self._version_label)
-
-    def _get_section_label_style(self):
-        fs = UiScale.font_small()
-        pad = UiScale.px(10)
-        return (
-            f"color: #888888; font-size: {fs}px; font-weight: bold; "
-            f"padding: {pad}px {pad}px {UiScale.px(5)}px {pad}px; text-transform: uppercase;"
+        c = get_theme_colors(self.theme)
+        self._version_label.setStyleSheet(
+            f"color: {c['text_muted']}; font-size: {UiScale.font_small()}px; "
+            f"padding: {UiScale.px(10)}px;"
         )
-
-    def _get_version_label_style(self):
-        fs = UiScale.font_small()
-        pad = UiScale.px(10)
-        color = '#999999' if self.theme == 'light' else '#555555'
-        return f"color: {color}; font-size: {fs}px; padding: {pad}px;"
+        layout.addWidget(self._version_label)
 
     def update_theme(self, theme):
         self.apply_scale()

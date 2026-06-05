@@ -2,7 +2,8 @@ from PySide6.QtCore import QThread, Signal, QObject
 # Примечание: если у вас папка называется core, замените services на core
 from services.vk_downloader import VKDownloader
 from core.employee_tagger import EmployeeTagger
-from core.nlp_processor import NLPProcessor
+from core.smart_tagger import SmartTagger
+from core.post_tags import build_post_tags
 from core.media_processor import MediaProcessor
 import vk_api
 import datetime
@@ -29,6 +30,9 @@ class DownloadWorker(QThread):
         self.signals = WorkerSignals()
         self.is_running = True
 
+    def stop(self):
+        self.is_running = False
+
     def _report(self, percent: int, message: str = None):
         self.signals.progress_value.emit(max(0, min(100, percent)))
         if message:
@@ -50,7 +54,8 @@ class DownloadWorker(QThread):
                 return
             
             tagger = EmployeeTagger(db=vk.db, refresh_on_init=False)
-            nlp = NLPProcessor()
+            smart = SmartTagger(vk.db)
+            smart.ensure_dictionary()
 
             self._report(5, f"📥 Загрузка постов из группы {self.group_identifier}...")
 
@@ -122,30 +127,9 @@ class DownloadWorker(QThread):
                 owner_id = post.get('owner_id') or post.get('from_id')
                 post_url = f"https://vk.com/wall{owner_id}_{post_id}" if owner_id is not None else ''
 
-                teacher_tags = tagger.get_teacher_hashtags(text)
-                author_employee_id = None
-                author_department_id = None
-                teacher_hashtag = None
-                department_hashtag = None
-
-                if teacher_tags:
-                    teacher_hashtag = teacher_tags[0]
-                    employee = tagger.find_employee_by_hashtag(teacher_hashtag)
-                    if employee:
-                        author_employee_id = employee.get('id')
-                        author_department_id = employee.get('department_id')
-                        department_hashtag = employee.get('department_hashtag')
-
-                all_tags = set(tagger.get_all_tags(text, include_keywords=True, include_teacher_tags=False))
-                if teacher_hashtag:
-                    all_tags.add(teacher_hashtag)
-                if department_hashtag:
-                    all_tags.add(department_hashtag)
-                nlp_tags = nlp.generate_tags(text)
-                if nlp_tags:
-                    all_tags.update(nlp_tags.split())
-                all_tags.update(f"#{tag}" for tag in re.findall(r'#([A-Za-zА-Яа-яЁё0-9_]+)', text))
-                found_tags = sorted(all_tags)
+                tags_str, teacher_hashtag, department_hashtag, author_employee_id, author_department_id = (
+                    build_post_tags(text, tagger, smart)
+                )
 
                 attachments = post.get('attachments', [])
                 folder_path = MediaProcessor.get_date_folder_path(post_date)
@@ -153,7 +137,7 @@ class DownloadWorker(QThread):
 
                 vk.db.save_post(
                     original_post_id=post_id, date=date, text=text,
-                    tags=" ".join(found_tags) if found_tags else "",
+                    tags=tags_str,
                     likes=likes, comments=comments, shares=shares,
                     post_url=post_url,
                     author_employee_id=author_employee_id,
@@ -377,7 +361,7 @@ class WallStatsRefreshWorker(QThread):
             vk = VKDownloader(self.token, self.group_identifier)
             db = vk.db
 
-            ids_in_db = db.get_all_original_post_ids()
+            ids_in_db = db.get_vk_original_post_ids()
             if not ids_in_db:
                 self.signals.progress.emit("⚠️ В базе нет постов")
                 self.signals.finished.emit(-1, 0)

@@ -9,8 +9,9 @@ DB_NAME = os.path.join(_PROJECT_ROOT, "Archive.db")
 # Папки для данных
 DATA_DIR = os.path.join(_PROJECT_ROOT, "Exports_data")
 
-# Теги
+# Теги: словарь «Тэги» без лимита; самодельные (из текста) — только слова, не более MAX_CUSTOM_TAGS
 MAX_TAGS = 15
+MAX_CUSTOM_TAGS = 15
 MIN_WORD_LENGTH = 3
 
 # VK API

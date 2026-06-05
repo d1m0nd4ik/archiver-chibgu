@@ -3,7 +3,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFrame, QLabel, QGridLayout, QComboBox,
     QDateEdit, QPushButton, QTextEdit, QMessageBox,
 )
-from ui.styles import STYLES, apply_theme_to_page
+from ui.styles import STYLES, apply_theme_to_page, get_page_header_style
+from ui.form_layout import FormGrid
 from core.statistics_analyzer import StatisticsAnalyzer
 from core.statistics_exporter import StatisticsExporter
 from core.database import Database
@@ -19,6 +20,7 @@ class TeachersPage(QWidget):
         self.analyzer = StatisticsAnalyzer()
         self.exporter = StatisticsExporter()
         self.period_calc = PeriodCalculator()
+        self._form_labels: list[QLabel] = []
         self.init_ui()
         self.refresh_statistics()
 
@@ -27,18 +29,20 @@ class TeachersPage(QWidget):
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(20)
 
-        header = QLabel("Преподаватели")
-        text_color = '#000000' if STYLES._theme == 'light' else '#ffffff'
-        header.setStyleSheet(f"color: {text_color}; font-size: 22px; font-weight: bold; padding: 10px 0;")
+        header = QLabel("Преподаватели в постах")
+        header.setStyleSheet(get_page_header_style())
         self.header_label = header
         layout.addWidget(header)
 
         controls_frame = QFrame()
         controls_frame.setStyleSheet(self.styles['frame'])
-        controls_layout = QGridLayout(controls_frame)
-        controls_layout.setSpacing(16)
+        self._controls_layout = QGridLayout(controls_frame)
+        controls_layout = self._controls_layout
+        FormGrid.setup_quad_column(controls_layout)
 
-        controls_layout.addWidget(QLabel("Период: "), 0, 0)
+        period_lbl = FormGrid.make_label("Период:")
+        self._form_labels.append(period_lbl)
+        controls_layout.addWidget(period_lbl, 0, 0)
         self.period_combo = QComboBox()
         self.period_combo.addItems(["Час", "День", "Неделя", "Месяц", "Год", "Все время", "Свой диапазон"])
         self.period_combo.setCurrentText("Все время")
@@ -46,7 +50,9 @@ class TeachersPage(QWidget):
         self.period_combo.setStyleSheet(self.styles.get('combo', self.styles['input']))
         controls_layout.addWidget(self.period_combo, 0, 1)
 
-        controls_layout.addWidget(QLabel("Дата от: "), 1, 0)
+        dfrom_lbl = FormGrid.make_label("Дата от:")
+        self._form_labels.append(dfrom_lbl)
+        controls_layout.addWidget(dfrom_lbl, 1, 0)
         self.custom_start = QDateEdit()
         self.custom_start.setCalendarPopup(True)
         self.custom_start.setDate(datetime.datetime.now() - datetime.timedelta(days=30))
@@ -54,13 +60,19 @@ class TeachersPage(QWidget):
         self.custom_start.setStyleSheet(self.styles.get('date', self.styles['input']))
         controls_layout.addWidget(self.custom_start, 1, 1)
 
-        controls_layout.addWidget(QLabel("Дата до: "), 1, 2)
+        dto_lbl = FormGrid.make_label("Дата до:")
+        self._form_labels.append(dto_lbl)
+        controls_layout.addWidget(dto_lbl, 1, 2)
         self.custom_end = QDateEdit()
         self.custom_end.setCalendarPopup(True)
         self.custom_end.setDate(datetime.datetime.now())
         self.custom_end.setEnabled(False)
         self.custom_end.setStyleSheet(self.styles.get('date', self.styles['input']))
         controls_layout.addWidget(self.custom_end, 1, 3)
+
+        for w in (self.period_combo, self.custom_start, self.custom_end):
+            FormGrid.fix_field(w)
+        FormGrid.sync_grid(controls_layout, labels=self._form_labels)
 
         self.refresh_btn = QPushButton("Обновить список")
         self.refresh_btn.setStyleSheet(self.styles['button'])
@@ -88,9 +100,16 @@ class TeachersPage(QWidget):
         layout.addWidget(info_frame)
         layout.addStretch()
 
+        self._primary_buttons = [self.refresh_btn]
+        self._secondary_buttons = [self.export_word_btn]
+
     def update_styles(self, styles):
         self.styles = styles
         apply_theme_to_page(self, styles)
+        for w in (self.period_combo, self.custom_start, self.custom_end):
+            FormGrid.fix_field(w)
+        if hasattr(self, '_controls_layout'):
+            FormGrid.sync_grid(self._controls_layout, labels=self._form_labels)
         self.refresh_statistics()
 
     def on_period_changed(self, value):

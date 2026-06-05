@@ -2,7 +2,7 @@ import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFrame, QLabel, QScrollArea, QSizePolicy,
     QPushButton, QHBoxLayout, QGridLayout, QStackedWidget, QStackedLayout,
-    QSlider, QMessageBox
+    QSlider, QMessageBox, QDialog,
 )
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QPixmap
@@ -10,10 +10,16 @@ from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from core.database import Database
 from core.statistics_analyzer import StatisticsAnalyzer
+from ui.dialogs.post_edit_dialog import PostEditDialog
 from core.logging_config import logger
-from ui.styles import STYLES, apply_theme_to_page, get_theme_colors
+from ui.styles import (
+    STYLES, apply_theme_to_page, get_theme_colors, get_page_header_style,
+    get_storage_summary_styles, get_compact_button_stylesheet, apply_panel_label_style,
+)
+from ui.ui_scale import UiScale
 from worker.download_worker import WallStatsRefreshWorker
 from core.config_manager import load_env_settings
+from core.post_temp_folder import get_post_temp_folder_manager
 
 class StoragePage(QWidget):
     """Исправленная страница хранилища: поддержка множественных медиа, правильные пропорции, центрирование"""
@@ -22,11 +28,15 @@ class StoragePage(QWidget):
         self.styles = styles or STYLES.get_styles()
         self.loaded_count = 0
         self.limit = 20
+        self.total_posts = 0
+        self._rendered_posts = []
         self.active_players = {}
         self._last_posts = []
         self.stats_worker = None
         self._analyzer = StatisticsAnalyzer()
+        self._temp_folder = get_post_temp_folder_manager()
         self.init_ui()
+        self._update_temp_folder_bar()
 
     def _theme_colors(self):
         c = get_theme_colors()
@@ -39,7 +49,7 @@ class StoragePage(QWidget):
         return {
             'title': c['text'], 'muted': c['text_muted'], 'text': c['text'], 'tag': '#6ea8ff',
             'card_bg': c['card'], 'card_border': c['input_border'], 'separator': c['separator'],
-            'media_bg': '#16191f', 'empty': '#7b8594',
+            'media_bg': c['input_bg'], 'empty': c['text_muted'],
         }
 
     def _post_card_style(self):
@@ -57,31 +67,60 @@ class StoragePage(QWidget):
         layout.setSpacing(15)
 
         header = QLabel("Хранилище постов")
-        c = self._theme_colors()
-        header.setStyleSheet(f"font-size: 24px; font-weight: 700; padding: 8px 2px 12px 2px; color: {c['title']};")
+        header.setStyleSheet(get_page_header_style())
         self.header_label = header
         layout.addWidget(header)
 
-        # ✅ КОНТЕЙНЕР: СТАТИСТИКА + КНОПКА ОБНОВЛЕНИЯ
-        stats_row = QFrame()
-        stats_row.setStyleSheet(self.styles['frame'])
-        stats_layout = QHBoxLayout(stats_row)
-        stats_layout.setContentsMargins(15, 10, 15, 10)
-        
+        self.summary_panel = QFrame()
+        self.summary_panel.setObjectName("storageSummary")
+        summary_layout = QVBoxLayout(self.summary_panel)
+        summary_layout.setContentsMargins(UiScale.px(14), UiScale.px(10), UiScale.px(14), UiScale.px(10))
+        summary_layout.setSpacing(UiScale.px(8))
+
+        top_row = QHBoxLayout()
         self.storage_stats_label = QLabel()
-        self.storage_stats_label.setStyleSheet(f"color: {c['text']}; font-size: 14px; padding: 5px; font-weight: 500;")
-        stats_layout.addWidget(self.storage_stats_label)
-        
-        stats_layout.addStretch()
-        
-        self.update_stats_btn = QPushButton("🔄 Обновить статистику из VK")
-        self.update_stats_btn.setStyleSheet(self.styles['button_secondary'])
-        self.update_stats_btn.setMinimumHeight(35)
+        self.storage_stats_label.setWordWrap(True)
+        self.storage_stats_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        top_row.addWidget(self.storage_stats_label, 1)
+        self.refresh_summary_btn = QPushButton("Обновить")
+        self.refresh_summary_btn.setToolTip("Обновить сводку архива")
+        self.refresh_summary_btn.clicked.connect(self.update_storage_stats)
+        top_row.addWidget(self.refresh_summary_btn)
+        self.update_stats_btn = QPushButton("Статистика из VK")
+        self.update_stats_btn.setToolTip("Обновить лайки, комментарии и репосты из ВКонтакте")
         self.update_stats_btn.clicked.connect(self.start_stats_update)
         self.update_stats_btn.setVisible(False)
-        stats_layout.addWidget(self.update_stats_btn)
-        
-        layout.addWidget(stats_row)
+        top_row.addWidget(self.update_stats_btn)
+        summary_layout.addLayout(top_row)
+
+        self.summary_sep = QFrame()
+        self.summary_sep.setFrameShape(QFrame.HLine)
+        self.summary_sep.setFixedHeight(1)
+        summary_layout.addWidget(self.summary_sep)
+
+        folder_row = QHBoxLayout()
+        folder_row.setSpacing(UiScale.px(8))
+        self.temp_folder_title = QLabel("Файлы поста на рабочем столе")
+        folder_row.addWidget(self.temp_folder_title)
+        self.temp_folder_path = QLabel("— выберите «Файлы на рабочий стол» на карточке поста")
+        self.temp_folder_path.setWordWrap(True)
+        self.temp_folder_path.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        folder_row.addWidget(self.temp_folder_path, 1)
+
+        self._theme_custom_labels = [
+            self.storage_stats_label, self.temp_folder_title, self.temp_folder_path,
+        ]
+        self.open_temp_folder_btn = QPushButton("Открыть")
+        self.open_temp_folder_btn.clicked.connect(self._open_current_temp_folder)
+        folder_row.addWidget(self.open_temp_folder_btn)
+        self.remove_temp_folder_btn = QPushButton("Удалить")
+        self.remove_temp_folder_btn.clicked.connect(self._remove_temp_folder)
+        folder_row.addWidget(self.remove_temp_folder_btn)
+        summary_layout.addLayout(folder_row)
+
+        layout.addWidget(self.summary_panel)
+        self._apply_summary_styles()
+        self._update_temp_folder_bar()
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
@@ -107,67 +146,175 @@ class StoragePage(QWidget):
 
         self.update_storage_stats()
 
+    def _apply_summary_styles(self):
+        ss = get_storage_summary_styles()
+        self.summary_panel.setStyleSheet(ss['frame'])
+        self.summary_sep.setStyleSheet(ss['sep'])
+        apply_panel_label_style(self.storage_stats_label, ss['stats'])
+        apply_panel_label_style(self.temp_folder_title, ss['folder'])
+        apply_panel_label_style(self.temp_folder_path, ss['folder_path'])
+        btn_h = UiScale.px(30)
+        for btn in (
+            self.refresh_summary_btn, self.update_stats_btn,
+            self.open_temp_folder_btn, self.remove_temp_folder_btn,
+        ):
+            btn.setFixedHeight(btn_h)
+        self.refresh_summary_btn.setStyleSheet(get_compact_button_stylesheet(False))
+        self.update_stats_btn.setStyleSheet(get_compact_button_stylesheet(True))
+        self.open_temp_folder_btn.setStyleSheet(get_compact_button_stylesheet(True))
+        self.remove_temp_folder_btn.setStyleSheet(get_compact_button_stylesheet(False))
+
     def update_storage_stats(self):
         try:
             db = Database()
             stats = db.get_stats()
             db.close()
             self.storage_stats_label.setText(
-                f"Всего постов: {stats['total']} | Фото: {stats['photos']} | Видео: {stats['videos']} | Клипы: {stats['clips']}"
+                f"Постов: {stats['total']} "
+                f"(ВК {stats.get('vk', stats['total'])}, ручные {stats.get('manual', 0)}) | "
+                f"Файлов: {stats.get('files', 0)} "
+                f"(фото {stats['photos']}, видео {stats['videos']}, клипы {stats['clips']}) | "
+                f"лайки {stats.get('likes', 0)}, "
+                f"коммент. {stats.get('comments', 0)}, "
+                f"репосты {stats.get('shares', 0)}"
             )
         except Exception as e:
             logger.error(f"Error updating storage stats: {e}")
 
-    def load_posts(self, posts, clear=True):
-        if clear:
-            self._last_posts = list(posts)
-            while self.posts_layout.count():
-                child = self.posts_layout.takeAt(0)
-                if child.widget(): child.widget().deleteLater()
-            self.loaded_count = 0
+    def _clear_posts_layout(self):
+        while self.posts_layout.count():
+            child = self.posts_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
 
-        if not posts:
-            if clear:
-                lbl = QLabel("📭 Постов пока нет")
-                lbl.setStyleSheet(f"color: {self._theme_colors()['muted']}; font-size: 16px; padding: 50px;")
-                lbl.setAlignment(Qt.AlignCenter)
-                self.posts_layout.addWidget(lbl)
-            self.load_more_btn.setVisible(False)
+    def _refresh_load_more_button(self):
+        has_more = self.loaded_count < self.total_posts
+        self.load_more_btn.setVisible(has_more)
+        self.load_more_btn.setEnabled(has_more)
+
+    def _render_posts(self):
+        self._clear_posts_layout()
+
+        if not self._rendered_posts:
+            lbl = QLabel("Постов пока нет")
+            lbl.setStyleSheet(f"color: {self._theme_colors()['muted']}; font-size: 16px; padding: 50px;")
+            lbl.setAlignment(Qt.AlignCenter)
+            self.posts_layout.addWidget(lbl)
             self.update_stats_btn.setVisible(False)
+            self._refresh_load_more_button()
             return
 
-        sorted_posts = sorted(posts, key=lambda x: x[2] if len(x) > 2 else '', reverse=True)
-        for post in sorted_posts[self.loaded_count:self.loaded_count + self.limit]:
+        for post in self._rendered_posts:
             self.posts_layout.addWidget(self.create_post_widget(post))
 
-        self.loaded_count += len(sorted_posts[self.loaded_count:self.loaded_count + self.limit])
-        self.load_more_btn.setVisible(self.loaded_count < len(sorted_posts))
-        self.update_stats_btn.setVisible(len(posts) > 0)
         self.posts_layout.addStretch()
+        self.update_stats_btn.setVisible(True)
+        self._refresh_load_more_button()
+
+    def load_posts(self, posts, clear=True):
+        # Совместимость со старым API вызовов из других страниц
+        if clear:
+            self._rendered_posts = list(posts)
+            self._last_posts = list(posts)
+            self.loaded_count = len(posts)
+            self.total_posts = max(self.total_posts, self.loaded_count)
+        else:
+            self._rendered_posts.extend(list(posts))
+            self._last_posts = list(self._rendered_posts)
+            self.loaded_count = len(self._rendered_posts)
+        self._render_posts()
+
+    def reload_posts(self):
+        try:
+            db = Database()
+            db.recalculate_posts_importance()
+            self.total_posts = db.get_posts_count()
+            page = db.get_posts_paginated(limit=self.limit, offset=0)
+            db.close()
+
+            self._rendered_posts = list(page)
+            self._last_posts = list(page)
+            self.loaded_count = len(page)
+            self._render_posts()
+        except Exception as e:
+            logger.error("reload_posts error: %s", e, exc_info=True)
+            QMessageBox.warning(self, "Ошибка", f"Не удалось загрузить посты:\n{e}")
+
+    def focus_post(self, original_post_id: int) -> bool:
+        """Прокрутка к карточке поста; при необходимости подгружает запись в список."""
+        oid = int(original_post_id)
+        for i in range(self.posts_layout.count()):
+            item = self.posts_layout.itemAt(i)
+            w = item.widget() if item else None
+            if w and getattr(w, "_post_oid", None) == oid:
+                self.scroll_area.ensureWidgetVisible(w)
+                w.setStyleSheet(self._post_card_style() + "border: 2px solid #3a7bd5;")
+                return True
+        try:
+            db = Database()
+            row = db.get_post_storage_row(oid)
+            db.close()
+            if row:
+                self._rendered_posts = [row] + [
+                    p for p in self._rendered_posts if (p[0] if p else None) != oid
+                ]
+                self._last_posts = list(self._rendered_posts)
+                self.loaded_count = len(self._rendered_posts)
+                self._render_posts()
+                return self.focus_post(oid)
+        except Exception as e:
+            logger.error("focus_post: %s", e)
+        return False
 
     def showEvent(self, event):
         super().showEvent(event)
-        if self._last_posts: self.load_posts(self._last_posts, clear=True)
+        try:
+            db = Database()
+            db.recalculate_posts_importance()
+            db.close()
+        except Exception as e:
+            logger.error("showEvent recalc importance: %s", e)
+        if self._last_posts:
+            self._render_posts()
+        else:
+            self.reload_posts()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if self.isVisible() and self._last_posts: self.load_posts(self._last_posts, clear=True)
+        if self.isVisible() and self._last_posts:
+            self._render_posts()
 
     def load_more_posts(self):
         try:
             db = Database()
-            all_posts = db.get_all_posts(limit=500)
+            batch = db.get_posts_paginated(limit=self.limit, offset=self.loaded_count)
             db.close()
-            self.load_posts(all_posts[self.loaded_count:], clear=False)
+            if batch:
+                self.load_posts(batch, clear=False)
+            else:
+                self._refresh_load_more_button()
         except Exception as e:
             QMessageBox.warning(self, "Ошибка", f"Не удалось загрузить посты:\n{e}")
+
+    def _is_manual_post(self, post) -> bool:
+        source = (post[17] if len(post) > 17 else None) or ''
+        if str(source).lower() == 'manual':
+            return True
+        try:
+            orig = post[0]
+            return orig is not None and int(orig) < 0
+        except (TypeError, ValueError):
+            return False
 
     def create_post_widget(self, post):
         post_id = str(post[1]) if len(post) > 1 and post[1] is not None else "Unknown"
         date = str(post[2]) if len(post) > 2 and post[2] is not None else ""
         text = str(post[3]) if len(post) > 3 and post[3] is not None else ""
         tags = str(post[4]) if len(post) > 4 and post[4] is not None else ""
-        
+        is_manual = self._is_manual_post(post)
+        source_label = (post[18] if len(post) > 18 else None) or "Ручная загрузка"
+        original_id = post[0]
+
         likes = post[5] if len(post) > 5 else 0
         comments = post[6] if len(post) > 6 else 0
         shares = post[7] if len(post) > 7 else 0
@@ -177,43 +324,53 @@ class StoragePage(QWidget):
         media_path = str(post[9]) if len(post) > 9 and post[9] is not None else ""
 
         frame = QFrame()
+        frame._post_oid = original_id  # type: ignore[attr-defined]
         frame.setStyleSheet(self._post_card_style())
         layout = QVBoxLayout(frame)
         layout.setSpacing(12)
         c = self._theme_colors()
 
+        meta_row = QHBoxLayout()
         if date:
-            d_lbl = QLabel(f"📅 {date}")
+            d_lbl = QLabel(f"Дата: {date}")
             d_lbl.setStyleSheet(f"color: {c['muted']}; font-size: 12px; font-weight: 500;")
-            layout.addWidget(d_lbl)
-            
-        # ✅ Статистика (Лайки, Комменты, Репосты)
-        stats_layout = QHBoxLayout()
-        stats_layout.setContentsMargins(0, 0, 0, 5)
-        stats_layout.setSpacing(15)
-        
-        lbl_likes = QLabel(f"❤️ {likes}")
-        lbl_likes.setStyleSheet(f"color: {c['text']}; font-size: 13px; font-weight: 600;")
-        stats_layout.addWidget(lbl_likes)
-        
-        lbl_comments = QLabel(f"💬 {comments}")
-        lbl_comments.setStyleSheet(f"color: {c['text']}; font-size: 13px; font-weight: 600;")
-        stats_layout.addWidget(lbl_comments)
-        
-        lbl_shares = QLabel(f"🔄 {shares}")
-        lbl_shares.setStyleSheet(f"color: {c['text']}; font-size: 13px; font-weight: 600;")
-        stats_layout.addWidget(lbl_shares)
-        
-        stats_layout.addStretch()
-        layout.addLayout(stats_layout)
+            meta_row.addWidget(d_lbl)
+        if is_manual:
+            src_lbl = QLabel(f"Источник: {source_label}")
+            src_lbl.setStyleSheet(f"color: {c.get('tag', c['text'])}; font-size: 13px; font-weight: 600;")
+            meta_row.addWidget(src_lbl)
+        else:
+            src_lbl = QLabel("Источник: ВКонтакте")
+            src_lbl.setStyleSheet(f"color: {c['muted']}; font-size: 12px; font-weight: 500;")
+            meta_row.addWidget(src_lbl)
+        meta_row.addStretch()
+        layout.addLayout(meta_row)
+
+        show_stats = not is_manual and (likes or comments or shares)
+        if show_stats:
+            stats_layout = QHBoxLayout()
+            stats_layout.setContentsMargins(0, 0, 0, 5)
+            stats_layout.setSpacing(15)
+            lbl_likes = QLabel(f"Лайки: {likes}")
+            lbl_likes.setStyleSheet(f"color: {c['text']}; font-size: 13px; font-weight: 600;")
+            stats_layout.addWidget(lbl_likes)
+            lbl_comments = QLabel(f"Коммент.: {comments}")
+            lbl_comments.setStyleSheet(f"color: {c['text']}; font-size: 13px; font-weight: 600;")
+            stats_layout.addWidget(lbl_comments)
+            lbl_shares = QLabel(f"Репосты: {shares}")
+            lbl_shares.setStyleSheet(f"color: {c['text']}; font-size: 13px; font-weight: 600;")
+            stats_layout.addWidget(lbl_shares)
+            stats_layout.addStretch()
+            layout.addLayout(stats_layout)
 
         if text:
             t_lbl = QLabel(text)
             t_lbl.setStyleSheet(f"color: {c['text']}; font-size: 14px; line-height: 1.6;")
             t_lbl.setWordWrap(True)
             layout.addWidget(t_lbl)
-        if tags:
-            tg_lbl = QLabel(tags)
+        display_tags = self._tags_for_display(post, tags)
+        if display_tags:
+            tg_lbl = QLabel(display_tags)
             tg_lbl.setStyleSheet(f"color: {c['tag']}; font-size: 13px; font-weight: 600;")
             tg_lbl.setWordWrap(True)
             layout.addWidget(tg_lbl)
@@ -234,22 +391,80 @@ class StoragePage(QWidget):
                 media_block = self._create_media_collection_widget(normalized_media, post_id)
                 layout.addWidget(media_block)
 
+        actions_row = QHBoxLayout()
+        actions_row.setContentsMargins(0, 4, 0, 0)
+        actions_row.addStretch()
+        files_btn = QPushButton("Файлы на рабочий стол")
+        files_btn.setStyleSheet(self.styles['button_secondary'])
+        files_btn.setFixedHeight(36)
+        files_btn.setMinimumWidth(180)
+        files_btn.setToolTip(
+            "Копирует фото и видео поста во временную папку на рабочем столе и открывает её в проводнике"
+        )
+        files_btn.clicked.connect(
+            lambda _=False, oid=original_id, dt=date: self._export_post_files(oid, dt)
+        )
+        actions_row.addWidget(files_btn)
+        edit_btn = QPushButton("Редактировать")
+        edit_btn.setStyleSheet(self.styles['button_secondary'])
+        edit_btn.setFixedHeight(36)
+        edit_btn.setMinimumWidth(140)
+        edit_btn.clicked.connect(lambda _=False, oid=original_id: self._edit_post(oid))
+        actions_row.addWidget(edit_btn)
+        layout.addLayout(actions_row)
+
         author, teacher_tag, dept_tag = self._extract_author_meta(post)
-        layout.addWidget(self._create_author_strip(author, teacher_tag, dept_tag))
+        layout.addWidget(self._create_author_strip(author, teacher_tag, dept_tag, is_manual))
         return frame
 
+    def _tags_for_display(self, post, tags_str: str) -> str:
+        """Список тегов без дубля хэштега преподавателя (он только в блоке авторства)."""
+        if not tags_str:
+            return ''
+        teacher_ht = post[12] if len(post) > 12 else ''
+        teacher_key = (teacher_ht or '').strip().lower().replace('ё', 'е')
+        parts = []
+        for token in tags_str.split():
+            key = token.strip().lower().replace('ё', 'е')
+            if teacher_key and key == teacher_key:
+                continue
+            parts.append(token)
+        return ' '.join(parts)
+
+    def _edit_post(self, original_post_id):
+        try:
+            db = Database()
+            full = db.get_post_by_original_id(original_post_id)
+            db.close()
+            if not full:
+                QMessageBox.warning(self, "Ошибка", "Пост не найден.")
+                return
+            dlg = PostEditDialog(full, self, self.styles)
+            if dlg.exec() == QDialog.Accepted and dlg.was_saved():
+                self.reload_posts()
+        except Exception as e:
+            logger.error("_edit_post: %s", e, exc_info=True)
+            QMessageBox.warning(self, "Ошибка", f"Не удалось открыть редактор:\n{e}")
+
     def _extract_author_meta(self, post):
-        author_raw = post[14] if len(post) > 14 else ''
-        author_hashtag = post[15] if len(post) > 15 else ''
-        teacher_hashtag = post[12] if len(post) > 12 else ''
+        from core.post_tags import is_teacher_hashtag_in_text
+
+        post_text = post[3] if len(post) > 3 else ''
+        teacher_hashtag = (post[12] if len(post) > 12 else '') or ''
+        teacher_hashtag = str(teacher_hashtag).strip()
+        if (
+            not teacher_hashtag
+            or teacher_hashtag in ('—', 'None')
+            or not is_teacher_hashtag_in_text(post_text, teacher_hashtag)
+        ):
+            return '—', '—', '—'
         department_hashtag = post[13] if len(post) > 13 else ''
         dept_hashtag = post[16] if len(post) > 16 else ''
-        author = self._analyzer._resolve_author_fio(author_raw, author_hashtag, teacher_hashtag)
-        teacher_tag = teacher_hashtag or author_hashtag or '—'
-        dept_tag = department_hashtag or dept_hashtag or '—'
-        return author or '—', teacher_tag, dept_tag
+        author = self._analyzer._resolve_author_fio('', '', teacher_hashtag)
+        dept_tag = (department_hashtag or dept_hashtag or '').strip() or '—'
+        return author or '—', teacher_hashtag, dept_tag
 
-    def _create_author_strip(self, author, teacher_tag, dept_tag):
+    def _create_author_strip(self, author, teacher_tag, dept_tag, is_manual=False):
         c = self._theme_colors()
         strip = QFrame()
         strip.setStyleSheet(
@@ -257,6 +472,8 @@ class StoragePage(QWidget):
         )
         strip_layout = QHBoxLayout(strip)
         strip_layout.setContentsMargins(14, 10, 14, 10)
+        if is_manual and author == '—':
+            author = 'не указан (материал не из ВК)'
         label = QLabel(
             f"Автор: {author}   ·   Хэштег преподавателя: {teacher_tag}   ·   Хэштег кафедры: {dept_tag}"
         )
@@ -585,6 +802,78 @@ class StoragePage(QWidget):
             return None
         except: return None
 
+    def _update_temp_folder_bar(self):
+        folder = self._temp_folder.current_folder
+        ss = get_storage_summary_styles()
+        if folder:
+            pid = self._temp_folder.current_post_id
+            self.temp_folder_title.setText(f"Папка поста #{pid}")
+            path = str(folder)
+            if len(path) > 72:
+                path = "…" + path[-69:]
+            self.temp_folder_path.setText(path)
+            apply_panel_label_style(self.temp_folder_title, ss['folder'])
+            apply_panel_label_style(self.temp_folder_path, ss['folder_path'])
+            self.open_temp_folder_btn.setEnabled(True)
+            self.remove_temp_folder_btn.setEnabled(True)
+        else:
+            self.temp_folder_title.setText("Файлы поста на рабочем столе")
+            self.temp_folder_path.setText(
+                "Кнопка «Файлы на рабочий стол» на карточке — копия вложений в папку на рабочем столе"
+            )
+            apply_panel_label_style(self.temp_folder_title, ss['folder'])
+            apply_panel_label_style(self.temp_folder_path, ss['folder_path'])
+            self.open_temp_folder_btn.setEnabled(False)
+            self.remove_temp_folder_btn.setEnabled(False)
+
+    def _export_post_files(self, original_post_id, date_str: str = ""):
+        ok, message = self._temp_folder.export_post(
+            original_post_id,
+            date_str=date_str,
+            open_explorer=True,
+        )
+        self._update_temp_folder_bar()
+        win = self.window()
+        if hasattr(win, 'log'):
+            win.log(message.split('\n')[0] if message else "Готово")
+        if ok:
+            QMessageBox.information(self, "Файлы поста", message)
+        else:
+            QMessageBox.warning(self, "Файлы поста", message)
+
+    def _open_current_temp_folder(self):
+        folder = self._temp_folder.current_folder
+        if not folder:
+            QMessageBox.information(self, "Папка", "Временная папка не создана.")
+            return
+        self._temp_folder.open_in_explorer(folder)
+
+    def _remove_temp_folder(self):
+        if not self._temp_folder.current_folder:
+            self._update_temp_folder_bar()
+            return
+        answer = QMessageBox.question(
+            self,
+            "Удалить папку",
+            f"Удалить временную папку?\n\n{self._temp_folder.folder_label()}",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        if self._temp_folder.remove_folder():
+            self._update_temp_folder_bar()
+            QMessageBox.information(self, "Готово", "Временная папка удалена.")
+        else:
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                "Не удалось удалить папку. Закройте файлы в проводнике и повторите.",
+            )
+
+    def cleanup_temp_folder(self):
+        self._temp_folder.cleanup()
+        self._update_temp_folder_bar()
+
     def cleanup_players(self):
         for pid, data in list(self.active_players.items()):
             try:
@@ -596,14 +885,18 @@ class StoragePage(QWidget):
 
     def update_styles(self, styles):
         self.styles = styles
-        self._secondary_buttons = [self.update_stats_btn]
+        self._secondary_buttons = [
+            self.refresh_summary_btn,
+            self.remove_temp_folder_btn,
+            self.load_more_btn,
+        ]
         apply_theme_to_page(self, styles)
         c = get_theme_colors()
-        self.header_label.setStyleSheet(
-            f"font-size: 24px; font-weight: 700; padding: 8px 2px 12px 2px; color: {c['text']};"
-        )
+        self.header_label.setStyleSheet(get_page_header_style())
+        self._apply_summary_styles()
+        self._update_temp_folder_bar()
         if self._last_posts:
-            self.load_posts(self._last_posts, clear=True)
+            self._render_posts()
 
     # ===== ОБНОВЛЕНИЕ СТАТИСТИКИ ИЗ VK =====
     def start_stats_update(self):
@@ -639,7 +932,8 @@ class StoragePage(QWidget):
             reply = QMessageBox.question(
                 self,
                 "Подтверждение",
-                "Обновить лайки, комментарии и репосты для всех постов архива?\n\n"
+                "Обновить лайки, комментарии и репосты для постов из ВКонтакте?\n\n"
+                "Материалы, добавленные вручную, не затрагиваются.\n\n"
                 "Сначала сверка со стеной сообщества (wall.get), затем для оставшихся — "
                 "точечный запрос wall.getById по ID поста.\n\n"
                 "Нужны тот же токен и та же группа, что при загрузке медиа.",
@@ -661,7 +955,7 @@ class StoragePage(QWidget):
                 self.stats_worker.signals.error.connect(self.on_stats_error)
                 self.stats_worker.start()
                 
-                self.storage_stats_label.setText("🔄 Обновление статистики...")
+                self.storage_stats_label.setText("Обновление статистики из VK…")
                 
         except Exception as e:
             logger.error(f"Error starting stats update: {e}")
@@ -672,10 +966,7 @@ class StoragePage(QWidget):
 
     def _reload_posts_from_db(self):
         try:
-            db = Database()
-            posts = db.get_all_posts(limit=500)
-            db.close()
-            self.load_posts(posts, clear=True)
+            self.reload_posts()
         except Exception as e:
             logger.error("Reload posts after stats update: %s", e)
 
@@ -714,4 +1005,5 @@ class StoragePage(QWidget):
     def on_stats_error(self, error_msg):
         self.update_stats_btn.setEnabled(True)
         self.load_more_btn.setEnabled(True)
+        self.update_storage_stats()
         QMessageBox.critical(self, "Ошибка", f"Произошла ошибка:\n\n{error_msg}")

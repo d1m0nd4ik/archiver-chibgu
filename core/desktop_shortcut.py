@@ -19,6 +19,11 @@ _SHCNF_PATHW = 0x0001
 _SHCNF_FLUSHNOWAIT = 0x3000
 
 
+def get_primary_desktop_dir() -> Path:
+    """Первый доступный каталог рабочего стола пользователя."""
+    return _desktop_dirs()[0]
+
+
 def _desktop_dirs() -> list[Path]:
     home = Path.home()
     candidates = [

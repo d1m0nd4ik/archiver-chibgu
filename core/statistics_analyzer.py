@@ -175,10 +175,16 @@ class StatisticsAnalyzer:
                 clean_text = self._strip_hashtags(text)
                 preview = clean_text if len(clean_text) <= 300 else clean_text[:300] + '...'
                 popularity = (stats.get('likes', 0) + stats.get('comments', 0) + stats.get('shares', 0))
-                author_fio = self._resolve_author_fio(author_name_raw, author_hashtag, teacher_hashtag)
-                dept_hashtag = post[12] if len(post) > 12 else ''
-                display_teacher_tag = teacher_hashtag or author_hashtag or ''
-                display_dept_tag = department_hashtag or dept_hashtag or ''
+                teacher_ht = (teacher_hashtag or '').strip()
+                if teacher_ht:
+                    author_fio = self._resolve_author_fio('', '', teacher_ht)
+                    display_teacher_tag = teacher_ht
+                    dept_extra = post[12] if len(post) > 12 else ''
+                    display_dept_tag = department_hashtag or dept_extra or ''
+                else:
+                    author_fio = ''
+                    display_teacher_tag = ''
+                    display_dept_tag = ''
                 results.append({
                     'post_id': pid,
                     'date': date,

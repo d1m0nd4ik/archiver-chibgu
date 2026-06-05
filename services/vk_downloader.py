@@ -3,7 +3,9 @@ from datetime import datetime
 import vk_api
 import glob
 from core.database import Database
-from core.nlp_processor import NLPProcessor
+from core.employee_tagger import EmployeeTagger
+from core.smart_tagger import SmartTagger
+from core.post_tags import build_post_tags
 from core.media_processor import MediaProcessor
 from core.url_parser import VKUrlParser
 from core.vk_token import TOKEN_INVALID_MSG, is_auth_error
@@ -32,9 +34,11 @@ class VKDownloader:
             else:
                 raise Exception(f"Ошибка инициализации VK API: {error_msg}") from e
         
-        self.nlp = NLPProcessor()
-        self.processor = MediaProcessor()
         self.db = Database()
+        self.smart_tagger = SmartTagger(self.db)
+        self.smart_tagger.ensure_dictionary()
+        self.tagger = EmployeeTagger(self.db, refresh_on_init=False)
+        self.processor = MediaProcessor()
         self.group_id = self._resolve_group_id(group_identifier)
         
         if not self.group_id:
@@ -222,15 +226,21 @@ class VKDownloader:
                     post_id = post['id']
                     date = datetime.fromtimestamp(post['date']).strftime('%Y-%m-%d %H:%M')
                     text = post.get('text', '')
-                    tags = self.nlp.generate_tags(text)
+                    tags_str, teacher_ht, dept_ht, emp_id, dept_id = build_post_tags(
+                        text, self.tagger, self.smart_tagger
+                    )
                     
                     likes = post.get('likes', {}).get('count', 0)
                     comments = post.get('comments', {}).get('count', 0)
                     shares = post.get('reposts', {}).get('count', 0)
 
                     self.db.save_post(
-                        original_post_id=post_id, date=date, text=text, tags=tags,
-                        likes=likes, comments=comments, shares=shares
+                        original_post_id=post_id, date=date, text=text, tags=tags_str,
+                        likes=likes, comments=comments, shares=shares,
+                        author_employee_id=emp_id,
+                        author_department_id=dept_id,
+                        teacher_hashtag=teacher_ht,
+                        department_hashtag=dept_ht,
                     )
 
                     for attach in post.get('attachments', []):

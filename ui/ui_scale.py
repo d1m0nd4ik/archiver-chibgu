@@ -114,18 +114,29 @@ class UiScale:
 
 
 def scale_stylesheet(css: str, factor: float | None = None) -> str:
-    """Масштабирует все значения Npx в QSS."""
+    """Масштабирует все значения Npx в QSS (кроме url(...))."""
     if not css:
         return css
     factor = factor if factor is not None else UiScale.factor()
     if abs(factor - 1.0) < 0.01:
         return css
 
+    placeholders: list[str] = []
+
+    def stash_url(match: re.Match) -> str:
+        placeholders.append(match.group(0))
+        return f"__QSS_URL_{len(placeholders) - 1}__"
+
+    protected = re.sub(r"url\((?:\"[^\"]*\"|'[^']*'|[^)]+)\)", stash_url, css, flags=re.IGNORECASE)
+
     def repl(match: re.Match) -> str:
         scaled = max(1, int(round(int(match.group(1)) * factor)))
         return f"{scaled}px"
 
-    return re.sub(r"(\d+)px", repl, css)
+    scaled = re.sub(r"(\d+)px", repl, protected)
+    for i, url in enumerate(placeholders):
+        scaled = scaled.replace(f"__QSS_URL_{i}__", url)
+    return scaled
 
 
 def scale_stylesheet_dict(styles: dict) -> dict:
@@ -137,8 +148,12 @@ def scale_stylesheet_dict(styles: dict) -> dict:
 
 
 def apply_application_font(app) -> None:
-    """Базовый шрифт приложения пропорционален экрану."""
+    """Базовый шрифт приложения — системный UI-шрифт, масштаб по экрану."""
     base_pt = 10.0 * UiScale.factor()
-    font = QFont()
-    font.setPointSizeF(max(8.5, base_pt))
+    for family in ("Segoe UI", "Tahoma", "Arial", "sans-serif"):
+        font = QFont(family)
+        if family == "sans-serif" or font.exactMatch():
+            break
+    font.setPointSizeF(max(9.0, base_pt))
+    font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
     app.setFont(font)

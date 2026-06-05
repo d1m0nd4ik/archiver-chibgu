@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame,
-    QInputDialog, QMessageBox, QTextEdit, QProgressBar,
+    QInputDialog, QMessageBox, QTextEdit, QProgressBar, QFileDialog,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QSizePolicy,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
@@ -13,11 +13,12 @@ from ui.styles import (
     get_section_title_style,
     get_table_stylesheet,
     get_panel_frame_stylesheet,
-    get_table_widget_palette,
+    apply_table_theme,
     scale_stylesheet,
 )
 from ui.ui_scale import UiScale
 from core.logging_config import logger
+from core.task_queue import AppTaskQueue
 
 
 class SyncThread(QThread):
@@ -53,19 +54,19 @@ class DepartmentsPage(QWidget):
         self._counter_timer.timeout.connect(self._update_counters)
         self.init_ui()
         self.load_departments()
+        q = AppTaskQueue.instance()
+        q.log_line.connect(self.append_log)
+        q.task_result.connect(self._on_queue_task_result)
 
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(*UiScale.page_margins())
         layout.setSpacing(UiScale.px(20))
 
+        from ui.styles import get_page_header_style
         c = get_theme_colors()
         self.header_label = QLabel('Кафедры и преподаватели')
-        self.header_label.setStyleSheet(
-            scale_stylesheet(
-                f"color: {c['text']}; font-size: 22px; font-weight: bold; padding: 10px 0;"
-            )
-        )
+        self.header_label.setStyleSheet(get_page_header_style())
         layout.addWidget(self.header_label)
 
         self.summary_label = QLabel('Всего: 0 кафедр, 0 преподавателей')
@@ -137,6 +138,9 @@ class DepartmentsPage(QWidget):
         self.sync_btn = QPushButton('Синхронизировать кафедры')
         self.sync_btn.clicked.connect(self.start_sync)
         right_layout.addWidget(self.sync_btn)
+        self.dept_report_btn = QPushButton('Отчёт Word по кафедре (период)')
+        self.dept_report_btn.clicked.connect(self.export_dept_report)
+        right_layout.addWidget(self.dept_report_btn)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
@@ -162,6 +166,7 @@ class DepartmentsPage(QWidget):
         self._secondary_buttons = [
             self.edit_dept_btn, self.del_dept_btn,
             self.edit_teacher_btn, self.del_teacher_btn, self.sync_btn,
+            self.dept_report_btn,
         ]
         self._section_labels = [
             self.dept_header_label, self.teacher_header_label, self.log_label,
@@ -176,11 +181,8 @@ class DepartmentsPage(QWidget):
         panel_qss = get_panel_frame_stylesheet(theme)
 
         self.setStyleSheet(f"background-color: {c['page_bg']};")
-        self.header_label.setStyleSheet(
-            scale_stylesheet(
-                f"color: {c['text']}; font-size: 22px; font-weight: bold; padding: 10px 0;"
-            )
-        )
+        from ui.styles import get_page_header_style
+        self.header_label.setStyleSheet(get_page_header_style(theme))
         self.summary_label.setStyleSheet(
             scale_stylesheet(
                 f"color: {c['text_muted']}; font-size: 14px; padding: 0 0 4px 0;"
@@ -191,11 +193,9 @@ class DepartmentsPage(QWidget):
         for label in self._section_labels:
             label.setStyleSheet(section_style)
 
-        table_palette = get_table_widget_palette(theme)
         for table in (self.dept_table, self.teacher_table):
             table.setStyleSheet(table_style)
-            table.setPalette(table_palette)
-            table.viewport().setPalette(table_palette)
+            apply_table_theme(table, theme)
         self.log_text.setStyleSheet(self.styles['textedit'])
         self.progress.setStyleSheet(self.styles['progressbar'])
 
@@ -341,6 +341,42 @@ class DepartmentsPage(QWidget):
         except Exception as e:
             logger.error('Department select: %s', e, exc_info=True)
 
+    def export_dept_report(self):
+        name = self._selected_department_name()
+        if not name:
+            QMessageBox.information(
+                self, 'Кафедра', 'Выберите кафедру в таблице слева.'
+            )
+            return
+        dept = self.db.get_department_by_name(name)
+        if not dept:
+            return
+        d_from, ok1 = QInputDialog.getText(
+            self, 'Период', 'Дата от (ГГГГ-ММ-ДД):', text='2025-01-01'
+        )
+        d_to, ok2 = QInputDialog.getText(
+            self, 'Период', 'Дата до (ГГГГ-ММ-ДД):', text='2025-12-31'
+        )
+        if not (ok1 and ok2 and d_from.strip() and d_to.strip()):
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            'Сохранить отчёт',
+            f"report_{dept['id']}.docx",
+            'Word (*.docx)',
+        )
+        if not path:
+            return
+        from core.department_report import export_department_report
+
+        ok, msg = export_department_report(
+            dept['id'], d_from.strip(), d_to.strip(), path, self.db
+        )
+        if ok:
+            QMessageBox.information(self, 'Отчёт', f'Сохранено:\n{msg}')
+        else:
+            QMessageBox.warning(self, 'Ошибка', msg)
+
     def add_department(self):
         name, ok = QInputDialog.getText(self, 'Добавить кафедру', 'Название кафедры:')
         if not ok or not name.strip():
@@ -448,26 +484,39 @@ class DepartmentsPage(QWidget):
         self.on_department_selected()
 
     def start_sync(self):
-        if self.sync_thread and self.sync_thread.isRunning():
-            QMessageBox.information(self, 'Синхронизация', 'Синхронизация уже запущена.')
+        queue = AppTaskQueue.instance()
+        if queue.is_busy():
+            QMessageBox.information(
+                self, 'Синхронизация',
+                'Дождитесь завершения текущей задачи или отмените её в Настройки → Фоновые задачи.',
+            )
             return
-        urls_text, ok = QInputDialog.getText(self, 'Список URL (необязательно)', 'Введите node-URL через запятую (оставьте пустым для автоматического обнаружения):')
+        urls_text, ok = QInputDialog.getText(
+            self, 'Список URL (необязательно)',
+            'Введите node-URL через запятую (оставьте пустым для автоматического обнаружения):',
+        )
+        if not ok:
+            return
         urls = None
-        if ok and urls_text.strip():
+        if urls_text.strip():
             urls = [u.strip() for u in urls_text.split(',') if u.strip()]
         self.progress.setVisible(True)
         self.log_text.clear()
-        self.sync_thread = SyncThread(urls=urls)
-        self.sync_thread.progress.connect(self.append_log)
-        self.sync_thread.finished_signal.connect(self.on_sync_finished)
-        self.sync_thread.start()
+        queue.enqueue_dept_sync(urls=urls)
+
+    def _on_queue_task_result(self, title: str, result):
+        if title == 'Синхронизация кафедр':
+            self.on_sync_finished(result)
 
     def append_log(self, msg: str):
         self.log_text.append(str(msg))
-        if self.sync_thread and self.sync_thread.isRunning():
+        if AppTaskQueue.instance().is_busy():
             self._schedule_counter_update()
 
-    def on_sync_finished(self, result: dict):
+    def on_sync_finished(self, result: dict, *, show_dialog: bool | None = None):
+        if show_dialog is None:
+            main = self.window()
+            show_dialog = not getattr(main, '_scheduler_silent', False)
         try:
             self.progress.setVisible(False)
             if result.get('success'):
@@ -479,13 +528,17 @@ class DepartmentsPage(QWidget):
                     summary += f"\nОшибок при загрузке кафедр: {result['dept_errors']}."
                 if not result.get('college_synced'):
                     summary += "\nКолледж не загружен — см. лог."
-                QMessageBox.information(self, 'Синхронизация', 'Синхронизация завершена.\n' + summary)
+                if show_dialog:
+                    QMessageBox.information(
+                        self, 'Синхронизация', 'Синхронизация завершена.\n' + summary,
+                    )
             else:
-                QMessageBox.warning(
-                    self, 'Синхронизация',
-                    'Ошибка при синхронизации: ' + str(result.get('error') or 'Неизвестная ошибка')
-                    + '\n\nПодробности — в логе ниже.'
-                )
+                if show_dialog:
+                    QMessageBox.warning(
+                        self, 'Синхронизация',
+                        'Ошибка при синхронизации: ' + str(result.get('error') or 'Неизвестная ошибка')
+                        + '\n\nПодробности — в логе ниже.',
+                    )
             self.load_departments()
         except Exception as e:
             logger.error('Sync finished handling error: %s', e, exc_info=True)
@@ -495,4 +548,6 @@ class DepartmentsPage(QWidget):
 
     def update_styles(self, styles):
         self.styles = styles
+        from ui.styles import apply_theme_to_page
+        apply_theme_to_page(self, styles)
         self._apply_widget_styles()

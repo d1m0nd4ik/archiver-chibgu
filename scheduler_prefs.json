@@ -1,0 +1,8 @@
+{
+  "enabled": false,
+  "interval": "weekly",
+  "run_dept_sync": true,
+  "run_retag_after_prep": true,
+  "run_vk_download": true,
+  "run_vk_stats": true
+}

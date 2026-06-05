@@ -24,6 +24,7 @@ logs/
 *.tmp
 *.temp
 .cache/
+models/
 
 # --- Python ---
 __pycache__/
