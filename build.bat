@@ -14,6 +14,7 @@ echo === VK Archiver CHIBGU: сборка exe ===
 echo.
 
 echo [1/3] Зависимости...
+"%PY%" -m pip install --upgrade pip setuptools wheel --quiet
 "%PIP%" install -r requirements.txt pyinstaller --quiet
 if errorlevel 1 (
   echo Ошибка установки зависимостей.

@@ -2,7 +2,8 @@
 .env
 .env.*
 !.env.example
-
+build.bat
+build.spec
 # --- Данные приложения (не коммитить) ---
 *.db
 *.db-shm
@@ -49,6 +50,7 @@ pip-wheel-metadata/
 htmlcov/
 .coverage
 coverage.xml
+
 
 # --- IDE / редактор ---
 .idea/

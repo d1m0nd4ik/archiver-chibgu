@@ -9,16 +9,19 @@ from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 
-from config.settings import _PROJECT_ROOT
+from config.paths import get_data_root
 from core.logging_config import logger
 
-CACHE_DIR = Path(_PROJECT_ROOT) / ".cache" / "thumbs"
+CACHE_DIR = get_data_root() / ".cache" / "thumbs"
 THUMB_SIZE = (64, 64)
+
+
+from core.media_paths import resolve_storage_path
 
 
 def resolve_media_preview_path(media_path: str, media_type: str) -> str:
     """Путь к файлу для превью: фото, либо *_thumb.jpg для видео/клипа."""
-    mpath = (media_path or "").strip()
+    mpath = resolve_storage_path(media_path)
     if not mpath:
         return ""
     mtype = (media_type or "").strip().lower()

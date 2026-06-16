@@ -15,6 +15,10 @@ Pillow>=10.0.0,<12
 python-dotenv>=1.0.0,<2
 
 # NLP (преподаватели в тексте, нормализация)
+# NumPy 1.x — для Python до 3.13 (совместимость со старыми CPU без SSE4.2).
+# NumPy 2.x — единственный вариант с готовыми wheel для Python 3.13+ (без компилятора).
+numpy>=1.24.0,<2.0.0; python_version < "3.13"
+numpy>=2.1.0,<3.0.0; python_version >= "3.13"
 pymorphy3>=2.0.0,<3
 pymorphy3-dicts-ru>=2.4.0
 natasha>=1.6.0,<2

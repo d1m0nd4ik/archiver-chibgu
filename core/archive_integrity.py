@@ -6,6 +6,7 @@ import os
 from config.settings import DATA_DIR
 from core.database import Database
 from core.logging_config import logger
+from core.media_paths import resolve_storage_path, storage_key
 
 
 def check_archive_integrity(
@@ -23,21 +24,22 @@ def check_archive_integrity(
     db = db or Database()
     missing_files: list[dict] = []
     empty_paths: list[dict] = []
-    known_paths: set[str] = set()
+    known_keys: set[str] = set()
 
     try:
         rows = db.get_all_attachments()
         for row in rows:
-            path = (row.get('media_path') or '').strip()
-            norm = os.path.normpath(path) if path else ''
-            if path:
-                known_paths.add(norm)
-                if os.path.isfile(path):
+            stored = (row.get('media_path') or '').strip()
+            if stored:
+                key = storage_key(stored)
+                known_keys.add(key)
+                resolved = resolve_storage_path(stored)
+                if os.path.isfile(resolved):
                     continue
                 missing_files.append({
                     'original_post_id': row['original_post_id'],
                     'media_type': row.get('media_type'),
-                    'media_path': path,
+                    'media_path': stored,
                 })
             else:
                 empty_paths.append({
@@ -50,6 +52,7 @@ def check_archive_integrity(
     orphan_files: list[str] = []
     if scan_orphan_files and os.path.isdir(DATA_DIR):
         media_ext = {'.jpg', '.jpeg', '.png', '.mp4', '.webm', '.mov', '.mkv'}
+        data_dir = os.path.normpath(DATA_DIR)
         for root, _dirs, files in os.walk(DATA_DIR):
             for name in files:
                 if name.endswith('_thumb.jpg'):
@@ -58,7 +61,12 @@ def check_archive_integrity(
                 if ext not in media_ext:
                     continue
                 full = os.path.normpath(os.path.join(root, name))
-                if full not in known_paths:
+                try:
+                    rel = os.path.relpath(full, data_dir)
+                except ValueError:
+                    rel = full
+                key = os.path.normpath(rel).lower().replace('\\', '/')
+                if key not in known_keys:
                     orphan_files.append(full)
 
     posts_without_attachments = 0
@@ -72,5 +80,5 @@ def check_archive_integrity(
         'empty_paths': empty_paths,
         'orphan_files': orphan_files,
         'posts_without_attachments': posts_without_attachments,
-        'total_attachments': len(known_paths) + len(empty_paths),
+        'total_attachments': len(known_keys) + len(empty_paths),
     }

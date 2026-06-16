@@ -4,6 +4,7 @@ import threading
 import time
 from config.settings import DB_NAME
 from core.logging_config import logger
+from core.media_paths import resolve_paths_csv, resolve_storage_path, to_storage_path
 
 _MAX_DB_RETRIES = 8
 _RETRY_BASE_DELAY = 0.15
@@ -11,7 +12,7 @@ _UNSET = object()
 
 
 class Database:
-    CURRENT_SCHEMA_VERSION = 10
+    CURRENT_SCHEMA_VERSION = 11
     _schema_ready: set[str] = set()
     _init_lock = threading.Lock()
     _instances = {}
@@ -262,8 +263,36 @@ class Database:
             if ver < 10:
                 self._migrate_schema_v10(cursor)
                 cursor.execute("PRAGMA user_version = 10")
+                ver = 10
+            if ver < 11:
+                self._migrate_schema_v11(cursor)
+                cursor.execute("PRAGMA user_version = 11")
         except Exception as e:
             logger.warning("_apply_schema_migrations: %s", e)
+
+    @staticmethod
+    def _resolve_post_media_row(row):
+        if not row:
+            return row
+        row = list(row)
+        if len(row) > 9 and row[9]:
+            row[9] = resolve_paths_csv(str(row[9]))
+        return tuple(row)
+
+    def _migrate_schema_v11(self, cursor):
+        rows = cursor.execute(
+            "SELECT id, media_path FROM attachments WHERE media_path IS NOT NULL AND TRIM(media_path) != ''"
+        ).fetchall()
+        updated = 0
+        for row_id, path in rows:
+            new_path = to_storage_path(path)
+            if new_path and new_path != path:
+                cursor.execute(
+                    "UPDATE attachments SET media_path = ? WHERE id = ?",
+                    (new_path, row_id),
+                )
+                updated += 1
+        logger.info("Schema migrated to v11 (relative media paths, updated %s rows)", updated)
 
     def _migrate_schema_v10(self, cursor):
         if not cursor.execute(
@@ -522,7 +551,11 @@ class Database:
                     "SELECT media_path FROM attachments WHERE original_post_id = ?",
                     (int(original_post_id),),
                 ).fetchall()
-                paths = [r[0] for r in rows if r and r[0]]
+                paths = [
+                    resolve_storage_path(r[0])
+                    for r in rows
+                    if r and r[0]
+                ]
 
             def _write():
                 oid = int(original_post_id)
@@ -605,11 +638,13 @@ class Database:
 
     def save_media(self, original_post_id, media_type, media_key, media_path, file_size):
         try:
+            stored_path = to_storage_path(media_path)
+
             def _write():
                 self._get_cursor().execute("""
                     INSERT INTO attachments (original_post_id, media_type, media_key, media_path, file_size)
                     VALUES (?, ?, ?, ?, ?)
-                """, (original_post_id, media_type, media_key, media_path, file_size))
+                """, (original_post_id, media_type, media_key, stored_path, file_size))
                 self._get_conn().commit()
                 return True
 
@@ -1212,7 +1247,7 @@ class Database:
                     'comments': r[6] or 0,
                     'shares': r[7] or 0,
                     'media_types': r[8] or '',
-                    'media_paths': r[9] or '',
+                    'media_paths': resolve_paths_csv(r[9] or ''),
                     'file_sizes': r[10] or '',
                     'post_url': r[11],
                     'teacher_hashtag': r[12],
@@ -1333,7 +1368,11 @@ class Database:
                 "SELECT media_path FROM attachments WHERE original_post_id = ?",
                 (int(original_post_id),),
             ).fetchall()
-            return [r[0] for r in rows if r and r[0]]
+            return [
+                resolve_storage_path(r[0])
+                for r in rows
+                if r and r[0]
+            ]
         except Exception:
             return []
 
@@ -1381,6 +1420,7 @@ class Database:
                 WHERE p.original_post_id = ?
                 GROUP BY p.original_post_id
             """, (int(original_post_id),)).fetchone()
+            return self._resolve_post_media_row(row)
         except Exception:
             return None
 
@@ -1517,7 +1557,7 @@ class Database:
                 LEFT JOIN departments d ON COALESCE(e.department_id, p.author_department_id) = d.id
                 GROUP BY p.original_post_id ORDER BY p.date DESC LIMIT ?
             """, (limit,)).fetchall()
-            return result
+            return [self._resolve_post_media_row(row) for row in result]
         except Exception as e:
             logger.error(f"[DB] get_all_posts Error: {e}")
             return []
@@ -1534,7 +1574,7 @@ class Database:
         try:
             limit = max(1, int(limit))
             offset = max(0, int(offset))
-            return self._get_cursor().execute("""
+            rows = self._get_cursor().execute("""
                 SELECT p.original_post_id, MAX(p.id), MAX(p.date), MAX(p.text), MAX(p.tags),
                        MAX(p.likes), MAX(p.comments), MAX(p.shares),
                        GROUP_CONCAT(a.media_type), GROUP_CONCAT(a.media_path), GROUP_CONCAT(a.file_size),
@@ -1549,6 +1589,7 @@ class Database:
                 ORDER BY p.date DESC
                 LIMIT ? OFFSET ?
             """, (limit, offset)).fetchall()
+            return [self._resolve_post_media_row(row) for row in rows]
         except Exception as e:
             logger.error("get_posts_paginated: %s", e)
             return []
@@ -2100,7 +2141,7 @@ class Database:
             return [
                 {
                     'media_type': r[0],
-                    'media_path': r[1],
+                    'media_path': resolve_storage_path(r[1] or ''),
                     'media_key': r[2],
                     'file_size': r[3],
                 }
@@ -2120,7 +2161,7 @@ class Database:
             results = []
             import os, glob
             for r in rows:
-                mtype, mpath = r[0], r[1]
+                mtype, mpath = r[0], resolve_storage_path(r[1] or '')
                 chosen = mpath
                 # For video/clip try to find a thumbnail file saved by downloader
                 if mtype in ('video', 'clip'):

@@ -18,9 +18,12 @@ except ImportError:
 try:
     from natasha import Segmenter, NewsEmbedding, NewsMorphTagger, Doc
     NATASHA_AVAILABLE = True
-except ImportError:
+except (ImportError, RuntimeError, OSError) as error:
     NATASHA_AVAILABLE = False
-    logger.warning("Natasha не найдена. Будет использован fallback на pymorphy3.")
+    logger.warning(
+        "Natasha недоступна (%s). Будет использован fallback на pymorphy3.",
+        error,
+    )
 
 STOP_WORDS = {
     'год', 'года', 'лет', 'месяц', 'день', 'дня', 'час', 'время', 'человек', 'люди',

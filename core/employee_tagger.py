@@ -16,8 +16,12 @@ from core.name_normalizer import normalize_and_reorder
 try:
     from natasha import Segmenter, NewsEmbedding, NewsMorphTagger, NewsNERTagger, Doc
     NATASHA_AVAILABLE = True
-except ImportError:
+except (ImportError, RuntimeError, OSError) as error:
     NATASHA_AVAILABLE = False
+    logger.warning(
+        "Natasha недоступна (%s). Распознавание ФИО в тексте — через pymorphy3.",
+        error,
+    )
 
 
 def normalize_name(value: str) -> str:
